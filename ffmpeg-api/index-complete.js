@@ -128,14 +128,16 @@ async function extractAudio(videoPath) {
 
 /**
  * Send audio to RunPod and get transcription
+ * RunPod status: IN_QUEUE (cold start) -> IN_PROGRESS -> COMPLETED
  */
-async function transcribeWithRunPod(audioBase64) {
+async function transcribeWithRunPod(audioBase64, stepStartTime) {
   const RUNPOD_API_KEY = process.env.RUNPOD_API_KEY;
   const RUNPOD_ENDPOINT_ID = process.env.RUNPOD_ENDPOINT_ID;
   const RUN_URL = `https://api.runpod.ai/v2/${RUNPOD_ENDPOINT_ID}/run`;
   const STATUS_URL = `https://api.runpod.ai/v2/${RUNPOD_ENDPOINT_ID}/status/`;
 
-  // Submit job
+  // Submit job to RunPod
+  console.log(`   └─ POST to RunPod API (endpoint: ${RUNPOD_ENDPOINT_ID})`);
   const submitResponse = await fetch(RUN_URL, {
     method: 'POST',
     headers: {
@@ -152,14 +154,16 @@ async function transcribeWithRunPod(audioBase64) {
     throw new Error('No job ID returned from RunPod');
   }
 
-  console.log(`RunPod job submitted: ${jobId}`);
+  console.log(`   └─ Job submitted: ${jobId}`);
+  console.log(`   └─ Polling for result (IN_QUEUE = cold start, IN_PROGRESS = transcribing)...`);
 
   // Poll for result (max 5 minutes)
   const maxAttempts = 100;
   let attempts = 0;
+  let lastStatus = '';
 
   while (attempts < maxAttempts) {
-    await new Promise((resolve) => setTimeout(resolve, 3000));
+    await new Promise((resolve) => setTimeout(resolve, 3000)); // Poll every 3 seconds
 
     const statusResponse = await fetch(STATUS_URL + jobId, {
       headers: { 'Authorization': `Bearer ${RUNPOD_API_KEY}` },
@@ -168,7 +172,15 @@ async function transcribeWithRunPod(audioBase64) {
     const statusData = await statusResponse.json();
     const status = statusData.status;
 
-    console.log(`RunPod status: ${status}`);
+    // Only log when status changes
+    if (status !== lastStatus) {
+      const elapsed = ((Date.now() - (stepStartTime || Date.now())) / 1000).toFixed(1);
+      const statusMeaning = status === 'IN_QUEUE' ? '(cold start - GPU worker spinning up)' :
+                         status === 'IN_PROGRESS' ? '(transcribing with Whisper model)' :
+                         status === 'COMPLETED' ? '(done!)' : '';
+      console.log(`   └─ [${elapsed}s] RunPod: ${status} ${statusMeaning}`);
+      lastStatus = status;
+    }
 
     if (status === 'COMPLETED') {
       return statusData.output;
@@ -199,9 +211,16 @@ async function transcribeWithRunPod(audioBase64) {
  * - Upload to Supabase
  * - Return results
  */
+function logStep(step, message, elapsed) {
+  const elapsedStr = elapsed ? ` [${(elapsed / 1000).toFixed(1)}s]` : '';
+  console.log(`\n========== STEP ${step} ==========`);
+  console.log(`[${new Date().toISOString()}] ${message}${elapsedStr}`);
+}
+
 app.post('/process-video', upload.single('video'), async (req, res) => {
   const startTime = Date.now();
   let videoPath, audioPath;
+  let stepStart = startTime;
 
   try {
     if (!req.file) {
@@ -212,21 +231,25 @@ app.post('/process-video', upload.single('video'), async (req, res) => {
     const timestamp = Date.now();
 
     videoPath = req.file.path;
-    console.log(`[${new Date().toISOString()}] Processing: ${req.file.originalname}`);
+    console.log(`\n${'='.repeat(60)}`);
+    console.log(`[${new Date().toISOString()}] NEW REQUEST: ${req.file.originalname} (${(req.file.size / 1024 / 1024).toFixed(2)} MB)`);
+    console.log(`${'='.repeat(60)}\n`);
 
-    // Step 1: Extract audio
-    console.log('Step 1: Extracting audio with FFmpeg...');
+    // Step 1: Extract audio with FFmpeg (Railway)
+    logStep(1, 'Extracting audio with FFmpeg (16kHz mono WAV)...', null);
+    stepStart = Date.now();
     audioPath = await extractAudio(videoPath);
-    console.log('✅ Audio extracted');
+    logStep(1, 'Audio extracted successfully', Date.now() - stepStart);
 
     // Step 2: Read audio as base64
-    console.log('Step 2: Reading audio as base64...');
+    logStep(2, 'Encoding audio to base64 for RunPod...', null);
+    stepStart = Date.now();
     const audioBuffer = fs.readFileSync(audioPath);
     const audioBase64 = audioBuffer.toString('base64');
-    console.log(`✅ Audio encoded (${audioBase64.length} chars)`);
+    logStep(2, `Audio encoded (${(audioBase64.length / 1024).toFixed(1)} KB base64)`, Date.now() - stepStart);
 
     // Step 3: Upload audio to Supabase Storage
-    console.log('Step 3: Uploading audio to Supabase...');
+    logStep(3, 'Uploading audio to Supabase Storage...', null);
     const audioStoragePath = `${userId}/audio/${timestamp}-audio.wav`;
     const { error: audioUploadError } = await supabase.storage
       .from('audio')
@@ -238,21 +261,22 @@ app.post('/process-video', upload.single('video'), async (req, res) => {
     if (audioUploadError) {
       throw new Error(`Audio upload failed: ${audioUploadError.message}`);
     }
-    console.log(`✅ Audio uploaded: ${audioStoragePath}`);
+    logStep(3, `Audio uploaded to Supabase: ${audioStoragePath}`, Date.now() - stepStart);
 
-    // Step 4: Send to RunPod for transcription
-    console.log('Step 4: Sending to RunPod ASR...');
-    const transcription = await transcribeWithRunPod(audioBase64);
-    console.log(`✅ Transcription completed: ${transcription.segments.length} segments`);
+    // Step 4: Send to RunPod for transcription (may have cold start!)
+    logStep(4, 'Sending audio to RunPod serverless endpoint...', null);
+    stepStart = Date.now();
+    const transcription = await transcribeWithRunPod(audioBase64, stepStart);
+    logStep(4, `Transcription done: ${transcription.segments.length} segments, ${transcription.words?.length || 0} words`, Date.now() - stepStart);
 
     // Step 5: Generate SRT and VTT
-    console.log('Step 5: Generating SRT/VTT...');
+    logStep(5, 'Generating SRT and VTT subtitle files...', null);
     const srtContent = segmentsToSRT(transcription.segments);
     const vttContent = segmentsToVTT(transcription.segments);
-    console.log('✅ Subtitles generated');
+    logStep(5, `SRT/VTT generated (${srtContent.length} chars)`, Date.now() - stepStart);
 
     // Step 6: Upload SRT/VTT to Supabase
-    console.log('Step 6: Uploading subtitles to Supabase...');
+    logStep(6, 'Uploading SRT and VTT to Supabase Storage...', null);
     const srtPath = `${userId}/subtitles/${timestamp}.srt`;
     const vttPath = `${userId}/subtitles/${timestamp}.vtt`;
 
@@ -266,7 +290,7 @@ app.post('/process-video', upload.single('video'), async (req, res) => {
         upsert: false,
       }),
     ]);
-    console.log(`✅ Subtitles uploaded`);
+    logStep(6, 'Subtitles uploaded to Supabase', Date.now() - stepStart);
 
     // Step 7: Upload word-level JSON (optional)
     if (transcription.words && transcription.words.length > 0) {
@@ -276,7 +300,7 @@ app.post('/process-video', upload.single('video'), async (req, res) => {
         JSON.stringify(transcription.words),
         { contentType: 'application/json', upsert: false }
       );
-      console.log(`✅ Word-level data uploaded`);
+      console.log(`   └─ Word-level JSON uploaded`);
     }
 
     // Step 8: Get public URLs
@@ -285,7 +309,10 @@ app.post('/process-video', upload.single('video'), async (req, res) => {
     const { data: vttUrl } = supabase.storage.from('subtitles').getPublicUrl(vttPath);
 
     const totalTime = Date.now() - startTime;
-    console.log(`✅ Complete! Total time: ${(totalTime / 1000).toFixed(2)}s`);
+    console.log(`\n${'='.repeat(60)}`);
+    console.log(`[${new Date().toISOString()}] PIPELINE COMPLETE! Total: ${(totalTime / 1000).toFixed(2)}s`);
+    console.log(`   SRT URL ready | Segments: ${transcription.segments.length} | Words: ${transcription.words?.length || 0}`);
+    console.log(`${'='.repeat(60)}\n`);
 
     // Cleanup
     setTimeout(() => {
