@@ -21,9 +21,10 @@ hinglish-serverless/
 ├── test-mvp-preview.html    # Preview page - video with synced subtitles
 ├── TESTING-GUIDE.md         # How to test the MVP
 │
-├── Dockerfile               # RunPod Docker image
-├── handler.py               # RunPod handler (Whisper ASR)
-├── requirements.txt         # Python dependencies
+├── runpod/                  # RunPod deployment (deploy separately to RunPod)
+│   ├── Dockerfile          # RunPod Docker image
+│   ├── handler.py          # RunPod handler (Whisper ASR)
+│   └── requirements.txt    # Python dependencies
 ├── test_runpod.py          # Test RunPod endpoint
 │
 ├── output.srt              # Sample output (Hinglish subtitles)
