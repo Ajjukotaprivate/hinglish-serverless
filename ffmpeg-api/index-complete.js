@@ -110,9 +110,11 @@ function segmentsToVTT(segments) {
 
 /**
  * Extract audio from video using FFmpeg
+ * Note: Multer saves without extension, so we use a distinct output path
  */
 async function extractAudio(videoPath) {
-  const audioPath = videoPath.replace(/\.[^.]+$/, '.wav');
+  // Use unique output path (multer files have no extension - same path would overwrite input!)
+  const audioPath = videoPath + '_audio.wav';
 
   return new Promise((resolve, reject) => {
     ffmpeg(videoPath)
