@@ -1,0 +1,9 @@
+runpod
+transformers
+torch
+librosa
+numpy
+soundfile
+accelerate
+sentencepiece
+whisperx

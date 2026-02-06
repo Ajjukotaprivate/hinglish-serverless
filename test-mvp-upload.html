@@ -1,0 +1,475 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Upload Video - MVP Test</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+
+        .container {
+            background: white;
+            padding: 40px;
+            border-radius: 12px;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
+            max-width: 600px;
+            width: 100%;
+        }
+
+        h1 {
+            color: #333;
+            margin-bottom: 10px;
+            font-size: 28px;
+        }
+
+        .subtitle {
+            color: #666;
+            margin-bottom: 30px;
+            font-size: 14px;
+        }
+
+        .upload-section {
+            margin-bottom: 20px;
+        }
+
+        .file-input-wrapper {
+            position: relative;
+            overflow: hidden;
+            display: inline-block;
+            width: 100%;
+            margin-bottom: 15px;
+        }
+
+        .file-input-wrapper input[type=file] {
+            font-size: 100px;
+            position: absolute;
+            left: 0;
+            top: 0;
+            opacity: 0;
+            cursor: pointer;
+            width: 100%;
+            height: 100%;
+        }
+
+        .file-input-label {
+            display: block;
+            padding: 15px 20px;
+            background: #f5f5f5;
+            border: 2px dashed #ddd;
+            border-radius: 6px;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+
+        .file-input-label:hover {
+            background: #e8e8e8;
+            border-color: #667eea;
+        }
+
+        .file-input-label.has-file {
+            background: #e8f5e9;
+            border-color: #4caf50;
+            color: #2e7d32;
+        }
+
+        .upload-btn {
+            width: 100%;
+            padding: 15px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            border-radius: 6px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+
+        .upload-btn:hover:not(:disabled) {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 20px rgba(102, 126, 234, 0.4);
+        }
+
+        .upload-btn:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .progress-section {
+            display: none;
+            margin-top: 20px;
+            padding: 20px;
+            background: #f5f5f5;
+            border-radius: 6px;
+        }
+
+        .progress-section.active {
+            display: block;
+        }
+
+        progress {
+            width: 100%;
+            height: 8px;
+            border-radius: 4px;
+            margin-bottom: 10px;
+        }
+
+        progress::-webkit-progress-bar {
+            background-color: #e0e0e0;
+            border-radius: 4px;
+        }
+
+        progress::-webkit-progress-value {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            border-radius: 4px;
+        }
+
+        .status-text {
+            color: #666;
+            font-size: 14px;
+            text-align: center;
+        }
+
+        .results-section {
+            display: none;
+            margin-top: 20px;
+            padding: 20px;
+            background: #e8f5e9;
+            border-radius: 6px;
+            border-left: 4px solid #4caf50;
+        }
+
+        .results-section.active {
+            display: block;
+        }
+
+        .results-section h2 {
+            color: #2e7d32;
+            font-size: 20px;
+            margin-bottom: 15px;
+        }
+
+        .result-item {
+            margin-bottom: 12px;
+        }
+
+        .result-item label {
+            display: block;
+            font-weight: 600;
+            color: #333;
+            margin-bottom: 5px;
+            font-size: 14px;
+        }
+
+        .result-item a {
+            color: #667eea;
+            text-decoration: none;
+            word-break: break-all;
+            font-size: 13px;
+        }
+
+        .result-item a:hover {
+            text-decoration: underline;
+        }
+
+        .preview-btn {
+            width: 100%;
+            padding: 12px;
+            background: #4caf50;
+            color: white;
+            border: none;
+            border-radius: 6px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            margin-top: 15px;
+            transition: transform 0.2s;
+        }
+
+        .preview-btn:hover {
+            transform: translateY(-2px);
+            background: #45a049;
+        }
+
+        .error-section {
+            display: none;
+            margin-top: 20px;
+            padding: 15px;
+            background: #ffebee;
+            border-radius: 6px;
+            border-left: 4px solid #c62828;
+            color: #c62828;
+        }
+
+        .error-section.active {
+            display: block;
+        }
+
+        .info-box {
+            background: #fff3cd;
+            border-left: 4px solid #ffc107;
+            padding: 15px;
+            margin-bottom: 20px;
+            border-radius: 6px;
+            font-size: 14px;
+            color: #856404;
+        }
+
+        .metadata {
+            font-size: 12px;
+            color: #666;
+            margin-top: 10px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🎬 Upload Video</h1>
+        <p class="subtitle">Test the core flow: Video → Audio → RunPod → Subtitles</p>
+
+        <div class="info-box">
+            <strong>📋 Instructions:</strong><br>
+            1. Select a video file (max 50MB)<br>
+            2. Click "Upload & Process"<br>
+            3. Wait 1-2 minutes for transcription<br>
+            4. Preview video with Hinglish subtitles
+        </div>
+
+        <div class="upload-section">
+            <div class="file-input-wrapper">
+                <label class="file-input-label" id="fileLabel">
+                    📁 Click to select video file (Max 50MB)
+                </label>
+                <input type="file" id="videoFile" accept="video/*,audio/*">
+            </div>
+
+            <button class="upload-btn" id="uploadBtn" onclick="uploadVideo()">
+                🚀 Upload & Process
+            </button>
+        </div>
+
+        <div class="progress-section" id="progressSection">
+            <progress id="progressBar" value="0" max="100"></progress>
+            <p class="status-text" id="statusText">Uploading...</p>
+        </div>
+
+        <div class="results-section" id="resultsSection">
+            <h2>✅ Processing Complete!</h2>
+            
+            <div class="result-item">
+                <label>Video URL:</label>
+                <a id="videoUrl" href="#" target="_blank">-</a>
+            </div>
+
+            <div class="result-item">
+                <label>SRT URL:</label>
+                <a id="srtUrl" href="#" target="_blank">-</a>
+            </div>
+
+            <div class="result-item">
+                <label>VTT URL:</label>
+                <a id="vttUrl" href="#" target="_blank">-</a>
+            </div>
+
+            <div class="metadata" id="metadata"></div>
+
+            <button class="preview-btn" onclick="openPreview()">
+                👁️ Preview Video with Subtitles
+            </button>
+        </div>
+
+        <div class="error-section" id="errorSection">
+            <strong>❌ Error:</strong>
+            <p id="errorText"></p>
+        </div>
+    </div>
+
+    <script>
+        const RAILWAY_API_URL = 'http://localhost:3001';
+        let selectedFile = null;
+
+        // Handle file selection
+        document.getElementById('videoFile').addEventListener('change', function(e) {
+            selectedFile = e.target.files[0];
+            const label = document.getElementById('fileLabel');
+            
+            if (selectedFile) {
+                const sizeMB = (selectedFile.size / 1024 / 1024).toFixed(2);
+                label.textContent = `✓ ${selectedFile.name} (${sizeMB} MB)`;
+                label.classList.add('has-file');
+                
+                // Check if file is too large
+                if (selectedFile.size > 50 * 1024 * 1024) {
+                    showError(`File too large! ${sizeMB}MB exceeds 50MB limit.`);
+                    selectedFile = null;
+                    label.classList.remove('has-file');
+                }
+            } else {
+                label.textContent = '📁 Click to select video file (Max 50MB)';
+                label.classList.remove('has-file');
+            }
+        });
+
+        async function uploadVideo() {
+            if (!selectedFile) {
+                showError('Please select a video file first!');
+                return;
+            }
+
+            // Validate file size
+            if (selectedFile.size > 50 * 1024 * 1024) {
+                showError('File too large! Maximum size is 50MB.');
+                return;
+            }
+
+            // Hide previous results/errors
+            hideError();
+            hideResults();
+
+            // Show progress
+            showProgress('Uploading video...');
+            disableUpload();
+
+            try {
+                // Create form data
+                const formData = new FormData();
+                formData.append('video', selectedFile);
+                formData.append('userId', 'test-user');
+
+                // Upload to Railway API
+                updateProgress(10, 'Uploading to server...');
+                
+                const response = await fetch(`${RAILWAY_API_URL}/process-video`, {
+                    method: 'POST',
+                    body: formData
+                });
+
+                if (!response.ok) {
+                    throw new Error(`Server error: ${response.status} ${response.statusText}`);
+                }
+
+                updateProgress(30, 'Extracting audio with FFmpeg...');
+                
+                const result = await response.json();
+
+                if (!result.success) {
+                    throw new Error(result.error || 'Processing failed');
+                }
+
+                updateProgress(100, 'Processing complete!');
+
+                // Show results
+                setTimeout(() => {
+                    showResults(result);
+                    hideProgress();
+                    enableUpload();
+                }, 500);
+
+            } catch (error) {
+                console.error('Upload error:', error);
+                showError(error.message);
+                hideProgress();
+                enableUpload();
+            }
+        }
+
+        function showResults(result) {
+            // Store URLs for preview
+            localStorage.setItem('lastVideoUrl', result.audioUrl || result.videoUrl);
+            localStorage.setItem('lastSrtUrl', result.subtitles.srt);
+            localStorage.setItem('lastVttUrl', result.subtitles.vtt);
+
+            // Display URLs
+            const videoUrlElem = document.getElementById('videoUrl');
+            const srtUrlElem = document.getElementById('srtUrl');
+            const vttUrlElem = document.getElementById('vttUrl');
+
+            videoUrlElem.href = result.audioUrl || result.videoUrl;
+            videoUrlElem.textContent = result.audioUrl || result.videoUrl;
+
+            srtUrlElem.href = result.subtitles.srt;
+            srtUrlElem.textContent = result.subtitles.srt;
+
+            vttUrlElem.href = result.subtitles.vtt;
+            vttUrlElem.textContent = result.subtitles.vtt;
+
+            // Display metadata
+            const metadata = result.metadata || {};
+            document.getElementById('metadata').innerHTML = `
+                <strong>📊 Details:</strong><br>
+                Segments: ${metadata.segmentCount || 0}<br>
+                Words: ${metadata.wordCount || 0}<br>
+                Processing time: ${((metadata.processingTimeMs || 0) / 1000).toFixed(1)}s
+            `;
+
+            document.getElementById('resultsSection').classList.add('active');
+        }
+
+        function openPreview() {
+            const videoUrl = localStorage.getItem('lastVideoUrl');
+            const srtUrl = localStorage.getItem('lastSrtUrl');
+            
+            if (!videoUrl || !srtUrl) {
+                showError('Missing video or subtitle URL!');
+                return;
+            }
+
+            const previewUrl = `test-mvp-preview.html?video=${encodeURIComponent(videoUrl)}&srt=${encodeURIComponent(srtUrl)}`;
+            window.open(previewUrl, '_blank');
+        }
+
+        function showProgress(message) {
+            document.getElementById('statusText').textContent = message;
+            document.getElementById('progressSection').classList.add('active');
+        }
+
+        function updateProgress(value, message) {
+            document.getElementById('progressBar').value = value;
+            document.getElementById('statusText').textContent = message;
+        }
+
+        function hideProgress() {
+            document.getElementById('progressSection').classList.remove('active');
+        }
+
+        function showError(message) {
+            document.getElementById('errorText').textContent = message;
+            document.getElementById('errorSection').classList.add('active');
+        }
+
+        function hideError() {
+            document.getElementById('errorSection').classList.remove('active');
+        }
+
+        function hideResults() {
+            document.getElementById('resultsSection').classList.remove('active');
+        }
+
+        function disableUpload() {
+            document.getElementById('uploadBtn').disabled = true;
+            document.getElementById('videoFile').disabled = true;
+        }
+
+        function enableUpload() {
+            document.getElementById('uploadBtn').disabled = false;
+            document.getElementById('videoFile').disabled = false;
+        }
+    </script>
+</body>
+</html>

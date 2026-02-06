@@ -1,0 +1,392 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Preview with Subtitles - MVP Test</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: #1a1a1a;
+            color: white;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        h1 {
+            text-align: center;
+            margin-bottom: 10px;
+            font-size: 28px;
+        }
+
+        .subtitle-text {
+            text-align: center;
+            color: #aaa;
+            margin-bottom: 30px;
+            font-size: 14px;
+        }
+
+        .video-container {
+            position: relative;
+            width: 100%;
+            max-width: 900px;
+            margin: 0 auto;
+            background: #000;
+            border-radius: 8px;
+            overflow: hidden;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5);
+        }
+
+        video {
+            width: 100%;
+            height: auto;
+            display: block;
+        }
+
+        .subtitle-overlay {
+            position: absolute;
+            bottom: 80px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(0, 0, 0, 0.85);
+            color: white;
+            padding: 12px 24px;
+            font-size: 28px;
+            font-weight: bold;
+            border-radius: 6px;
+            text-align: center;
+            max-width: 85%;
+            line-height: 1.4;
+            text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.8);
+            display: none;
+            pointer-events: none;
+            z-index: 10;
+        }
+
+        .subtitle-overlay.active {
+            display: block;
+        }
+
+        .controls {
+            margin-top: 20px;
+            text-align: center;
+        }
+
+        .control-btn {
+            padding: 10px 20px;
+            margin: 0 5px;
+            background: #667eea;
+            color: white;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 14px;
+            transition: background 0.3s;
+        }
+
+        .control-btn:hover {
+            background: #5568d3;
+        }
+
+        .info-box {
+            max-width: 900px;
+            margin: 20px auto;
+            padding: 15px;
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 6px;
+            font-size: 14px;
+        }
+
+        .info-box strong {
+            color: #667eea;
+        }
+
+        .loading {
+            text-align: center;
+            padding: 40px;
+            color: #aaa;
+        }
+
+        .error {
+            max-width: 600px;
+            margin: 40px auto;
+            padding: 20px;
+            background: #ffebee;
+            color: #c62828;
+            border-radius: 6px;
+            border-left: 4px solid #c62828;
+        }
+
+        .stats {
+            display: flex;
+            justify-content: center;
+            gap: 30px;
+            margin-top: 20px;
+            flex-wrap: wrap;
+        }
+
+        .stat-item {
+            text-align: center;
+        }
+
+        .stat-value {
+            font-size: 24px;
+            font-weight: bold;
+            color: #667eea;
+        }
+
+        .stat-label {
+            font-size: 12px;
+            color: #aaa;
+            margin-top: 5px;
+        }
+
+        @media (max-width: 768px) {
+            .subtitle-overlay {
+                font-size: 20px;
+                bottom: 60px;
+                padding: 10px 16px;
+            }
+
+            h1 {
+                font-size: 22px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🎬 Video Preview with Hinglish Subtitles</h1>
+        <p class="subtitle-text">Testing subtitle synchronization</p>
+
+        <div id="loadingSection" class="loading">
+            <p>⏳ Loading video and subtitles...</p>
+        </div>
+
+        <div id="errorSection" class="error" style="display: none;">
+            <strong>❌ Error:</strong>
+            <p id="errorText"></p>
+        </div>
+
+        <div id="videoSection" style="display: none;">
+            <div class="video-container">
+                <video id="videoPlayer" controls preload="metadata">
+                    <source id="videoSource" type="video/mp4">
+                    Your browser does not support the video tag.
+                </video>
+                <div class="subtitle-overlay" id="subtitleOverlay"></div>
+            </div>
+
+            <div class="info-box">
+                <strong>📋 Instructions:</strong><br>
+                • Play the video to see Hinglish subtitles<br>
+                • Subtitles will appear at the bottom<br>
+                • Try seeking to different parts of the video<br>
+                • Use keyboard: Space = Play/Pause, Arrow keys = Seek
+            </div>
+
+            <div class="stats">
+                <div class="stat-item">
+                    <div class="stat-value" id="totalSegments">0</div>
+                    <div class="stat-label">Total Segments</div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-value" id="currentSegment">-</div>
+                    <div class="stat-label">Current Segment</div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-value" id="videoDuration">0:00</div>
+                    <div class="stat-label">Video Duration</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let subtitles = [];
+        let currentSubtitleIndex = -1;
+        const video = document.getElementById('videoPlayer');
+        const subtitleOverlay = document.getElementById('subtitleOverlay');
+
+        // Parse URL parameters
+        const params = new URLSearchParams(window.location.search);
+        const videoUrl = params.get('video');
+        const srtUrl = params.get('srt');
+
+        // Initialize
+        async function init() {
+            try {
+                if (!videoUrl || !srtUrl) {
+                    throw new Error('Missing video or SRT URL in query parameters');
+                }
+
+                console.log('Video URL:', videoUrl);
+                console.log('SRT URL:', srtUrl);
+
+                // Load video
+                document.getElementById('videoSource').src = videoUrl;
+                video.load();
+
+                // Load and parse subtitles
+                await loadSubtitles(srtUrl);
+
+                // Setup video event listeners
+                setupVideoListeners();
+
+                // Hide loading, show video
+                document.getElementById('loadingSection').style.display = 'none';
+                document.getElementById('videoSection').style.display = 'block';
+
+                console.log(`Loaded ${subtitles.length} subtitle segments`);
+
+            } catch (error) {
+                console.error('Initialization error:', error);
+                showError(error.message);
+            }
+        }
+
+        // Fetch and parse SRT file
+        async function loadSubtitles(url) {
+            try {
+                const response = await fetch(url);
+                if (!response.ok) {
+                    throw new Error(`Failed to fetch SRT: ${response.status}`);
+                }
+
+                const srtText = await response.text();
+                subtitles = parseSRT(srtText);
+
+                document.getElementById('totalSegments').textContent = subtitles.length;
+
+                console.log('Parsed subtitles:', subtitles.slice(0, 3));
+
+            } catch (error) {
+                throw new Error(`Failed to load subtitles: ${error.message}`);
+            }
+        }
+
+        // Parse SRT format
+        function parseSRT(srtText) {
+            const segments = [];
+            const blocks = srtText.trim().split('\n\n');
+
+            for (const block of blocks) {
+                const lines = block.split('\n').filter(line => line.trim());
+                if (lines.length < 3) continue;
+
+                // Skip the index number (first line)
+                // Parse timestamp line: "00:00:01,000 --> 00:00:03,500"
+                const timeLine = lines[1];
+                if (!timeLine.includes('-->')) continue;
+
+                const [startStr, endStr] = timeLine.split('-->').map(s => s.trim());
+
+                // Text is everything after the timestamp line
+                const text = lines.slice(2).join(' ').trim();
+
+                segments.push({
+                    start: parseTimestamp(startStr),
+                    end: parseTimestamp(endStr),
+                    text: text
+                });
+            }
+
+            return segments;
+        }
+
+        // Convert "HH:MM:SS,mmm" to seconds
+        function parseTimestamp(timeStr) {
+            try {
+                const [time, ms] = timeStr.split(',');
+                const [hours, minutes, seconds] = time.split(':').map(Number);
+                return hours * 3600 + minutes * 60 + seconds + (ms ? ms / 1000 : 0);
+            } catch (error) {
+                console.error('Failed to parse timestamp:', timeStr);
+                return 0;
+            }
+        }
+
+        // Setup video event listeners
+        function setupVideoListeners() {
+            // Time update - sync subtitles
+            video.addEventListener('timeupdate', syncSubtitles);
+
+            // Loaded metadata - show duration
+            video.addEventListener('loadedmetadata', () => {
+                const duration = formatTime(video.duration);
+                document.getElementById('videoDuration').textContent = duration;
+            });
+
+            // Keyboard controls
+            document.addEventListener('keydown', (e) => {
+                if (e.key === ' ') {
+                    e.preventDefault();
+                    if (video.paused) {
+                        video.play();
+                    } else {
+                        video.pause();
+                    }
+                } else if (e.key === 'ArrowLeft') {
+                    video.currentTime = Math.max(0, video.currentTime - 5);
+                } else if (e.key === 'ArrowRight') {
+                    video.currentTime = Math.min(video.duration, video.currentTime + 5);
+                }
+            });
+        }
+
+        // Sync subtitles with video time
+        function syncSubtitles() {
+            const currentTime = video.currentTime;
+
+            // Find current subtitle
+            const index = subtitles.findIndex(
+                s => currentTime >= s.start && currentTime <= s.end
+            );
+
+            // Update subtitle if changed
+            if (index !== currentSubtitleIndex) {
+                currentSubtitleIndex = index;
+
+                if (index >= 0) {
+                    // Show subtitle
+                    subtitleOverlay.textContent = subtitles[index].text;
+                    subtitleOverlay.classList.add('active');
+                    document.getElementById('currentSegment').textContent = index + 1;
+                } else {
+                    // Hide subtitle
+                    subtitleOverlay.classList.remove('active');
+                    document.getElementById('currentSegment').textContent = '-';
+                }
+            }
+        }
+
+        // Format seconds to MM:SS
+        function formatTime(seconds) {
+            if (isNaN(seconds)) return '0:00';
+            const mins = Math.floor(seconds / 60);
+            const secs = Math.floor(seconds % 60);
+            return `${mins}:${String(secs).padStart(2, '0')}`;
+        }
+
+        // Show error
+        function showError(message) {
+            document.getElementById('loadingSection').style.display = 'none';
+            document.getElementById('errorSection').style.display = 'block';
+            document.getElementById('errorText').textContent = message;
+        }
+
+        // Initialize on page load
+        init();
+    </script>
+</body>
+</html>
