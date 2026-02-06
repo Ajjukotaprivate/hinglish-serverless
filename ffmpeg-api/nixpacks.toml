@@ -1,0 +1,5 @@
+# Install FFmpeg for Railway deployment
+# Required for audio extraction from video files
+
+[phases.setup]
+nixPkgs = ["ffmpeg"]
