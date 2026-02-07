@@ -17,48 +17,57 @@ hinglish-serverless/
 │   ├── .env                 # Configuration (Supabase + RunPod keys)
 │   └── package.json         # Dependencies
 │
-├── test-mvp-upload.html     # Upload page - select video & process
-├── test-mvp-preview.html    # Preview page - video with synced subtitles
-├── TESTING-GUIDE.md         # How to test the MVP
-│
 ├── runpod/                  # RunPod deployment (deploy separately to RunPod)
-│   ├── Dockerfile          # RunPod Docker image
-│   ├── handler.py          # RunPod handler (Whisper ASR)
-│   └── requirements.txt    # Python dependencies
-├── test_runpod.py          # Test RunPod endpoint
+│   ├── Dockerfile           # RunPod Docker image
+│   ├── handler.py           # RunPod handler (Whisper ASR)
+│   └── requirements.txt     # Python dependencies
 │
-├── output.srt              # Sample output (Hinglish subtitles)
-├── output_words.json       # Word-level timestamps
+├── test-mvp-upload.html     # MVP upload page
+├── test-mvp-preview.html    # MVP preview with synced subtitles
+├── test_runpod.py           # Test RunPod endpoint
 │
-└── .env.local              # Main environment variables
+├── ARCHITECTURE.md           # Architecture & pipeline docs
+├── BUILD-STATUS.md           # What's built vs roadmap
+└── .env.local               # Main environment variables
 ```
 
 ---
 
 ## 🚀 Quick Start
 
-### 1. Start the Railway API
+### Next.js App (Recommended)
 
-```bash
-cd ffmpeg-api
-node index-complete.js
-```
+1. **Install dependencies**
+   ```bash
+   npm install
+   ```
 
-Should see: "✅ Ready to process videos!"
+2. **Configure environment**
+   - Copy `.env.example` to `.env.local`
+   - Add `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`
+   - Add `NEXT_PUBLIC_RAILWAY_API_URL` (your Railway API URL)
 
-### 2. Open Upload Page
+3. **Run Supabase migrations**
+   - In Supabase Dashboard: SQL Editor → run `supabase/migrations/*.sql`
+   - Create `videos` and `exports` storage buckets
 
-Double-click `test-mvp-upload.html` in your browser
+4. **Start the app**
+   ```bash
+   npm run dev
+   ```
+   Open http://localhost:3000
 
-### 3. Upload a Video
+### Legacy HTML MVP
 
-- Select a video (max 50MB)
-- Click "Upload & Process"
-- Wait 1-2 minutes
+1. **Start the Railway API**
+   ```bash
+   cd ffmpeg-api
+   node index-complete.js
+   ```
 
-### 4. Preview Subtitles
+2. **Open `test-mvp-upload.html`** in your browser
 
-Click "Preview Video with Subtitles" to see synced Hinglish subtitles!
+3. **Upload a video** (max 50MB), wait 1-2 min, then **Preview** with subtitles
 
 ---
 
@@ -120,7 +129,8 @@ Preview with Synced Subtitles
 
 ## 📖 Documentation
 
-- **TESTING-GUIDE.md** - Complete testing instructions
+- **ARCHITECTURE.md** - Pipeline architecture (Railway → RunPod → Supabase)
+- **BUILD-STATUS.md** - What's built vs roadmap for next phase
 - **ffmpeg-api/README.md** - API documentation
 
 ---
@@ -134,16 +144,11 @@ Preview with Synced Subtitles
 - ✅ Supabase Storage integration
 - ✅ Preview with synced subtitles
 - ✅ Word-level timestamps
-
----
-
-## 🚧 What's Next
-
-1. **Timeline Editor** - Edit subtitle text and timing
-2. **Subtitle Burning** - Export video with burned subtitles
-3. **Next.js App** - Production-ready interface
-4. **Authentication** - User accounts
-5. **Payment System** - Credit-based pricing
+- ✅ **Next.js app** – Timeline editor, subtitle styling, export
+- ✅ **Subtitle burn** – FFmpeg `POST /burn-subtitles`
+- ✅ **Auth** – Email OTP, Google OAuth
+- ✅ **Projects** – Save/load in Supabase
+- ✅ **Credits** – User profiles, placeholder for Stripe
 
 ---
 

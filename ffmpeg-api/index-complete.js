@@ -19,6 +19,8 @@ const ffmpeg = require('fluent-ffmpeg');
 const cors = require('cors');
 const fs = require('fs');
 const path = require('path');
+const https = require('https');
+const http = require('http');
 const { createClient } = require('@supabase/supabase-js');
 
 const app = express();
@@ -87,6 +89,73 @@ function segmentsToSRT(segments) {
   });
 
   return srtLines.join('\n');
+}
+
+/**
+ * Format seconds to ASS timestamp (H:MM:SS.cc)
+ */
+function formatASSTimestamp(seconds) {
+  const hours = Math.floor(seconds / 3600);
+  const minutes = Math.floor((seconds % 3600) / 60);
+  const secs = Math.floor(seconds % 60);
+  const centis = Math.floor((seconds % 1) * 100);
+
+  return `${hours}:${String(minutes).padStart(2, '0')}:${String(secs).padStart(2, '0')}.${String(centis).padStart(2, '0')}`;
+}
+
+/**
+ * Convert #RRGGBB or #RRGGBBAA to ASS colour &HAABBGGRR
+ */
+function hexToASSColor(hex, defaultAlpha = '00') {
+  const m = hex.match(/^#?([a-fA-F0-9]{6})([a-fA-F0-9]{2})?$/);
+  if (!m) return '&H00FFFFFF';
+  const r = m[1].slice(4, 6);
+  const g = m[1].slice(2, 4);
+  const b = m[1].slice(0, 2);
+  const a = (m[2] || defaultAlpha).toUpperCase();
+  return `&H${a}${b}${g}${r}`;
+}
+
+/**
+ * Convert segments + style to ASS (Advanced SubStation Alpha) for TikTok-style burn
+ * ASS supports: fonts, outline, shadow, colors, alignment - all server-side via FFmpeg/libass
+ */
+function segmentsToASS(segments, style, playResX = 1080, playResY = 1920) {
+  const fontName = (style?.fontFamily || 'Impact').replace(/\s+/g, ' ');
+  const fontSize = style?.fontSize || 72;
+  const textColor = hexToASSColor(style?.textColor || '#FFFFFF', '00');
+  const outlineColor = hexToASSColor(style?.outlineColor || '#000000', '00');
+  const outlineWidth = style?.outlineEnabled !== false ? (style?.outlineWidth || 4) : 0;
+  const shadow = outlineWidth > 0 ? 2 : 0;
+  const alignMap = { left: 7, center: 2, right: 9 };
+  const alignment = alignMap[style?.alignment] || 2;
+  const marginV = Math.floor(playResY * 0.15);
+
+  const lines = [
+    '[Script Info]',
+    'Title: Hinglish Export',
+    'ScriptType: v4.00+',
+    `PlayResX: ${playResX}`,
+    `PlayResY: ${playResY}`,
+    '',
+    '[V4+ Styles]',
+    'Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding',
+    `Style: Default,${fontName},${fontSize},${textColor},&H000000FF,${outlineColor},&H80000000,-1,0,0,0,100,100,0,0,1,${outlineWidth},${shadow},${alignment},40,40,${marginV},1`,
+    '',
+    '[Events]',
+    'Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text',
+  ];
+
+  segments.forEach((seg) => {
+    const start = formatASSTimestamp(seg.start);
+    const end = formatASSTimestamp(seg.end);
+    const text = (style?.allCaps ? seg.text.toUpperCase() : seg.text.trim())
+      .replace(/\n/g, '\\N')
+      .replace(/\r/g, '');
+    lines.push(`Dialogue: 0,${start},${end},Default,,0,0,0,,${text}`);
+  });
+
+  return lines.join('\r\n');
 }
 
 /**
@@ -198,6 +267,148 @@ async function transcribeWithRunPod(audioBase64, stepStartTime) {
   throw new Error('RunPod timeout (5 minutes)');
 }
 
+/**
+ * Download file from URL to local path
+ */
+function downloadFile(url) {
+  return new Promise((resolve, reject) => {
+    const protocol = url.startsWith('https') ? https : http;
+    const file = fs.createWriteStream(path.join('uploads', `burn-${Date.now()}-video.mp4`));
+    protocol.get(url, (response) => {
+      if (response.statusCode === 302 || response.statusCode === 301) {
+        return downloadFile(response.headers.location).then(resolve).catch(reject);
+      }
+      response.pipe(file);
+      file.on('finish', () => {
+        file.close();
+        resolve(file.path);
+      });
+    }).on('error', (err) => {
+      fs.unlink(file.path, () => {});
+      reject(err);
+    });
+  });
+}
+
+// ============================================
+// BURN SUBTITLES ENDPOINT
+// ============================================
+
+app.post('/burn-subtitles', express.json(), async (req, res) => {
+  const startTime = Date.now();
+  let videoPath, subPath, outputPath;
+
+  try {
+    const {
+      videoUrl,
+      segments,
+      srtUrl,
+      style,
+      format = 'ass',
+      quality = 'balanced',
+      userId = 'anonymous',
+      aspectRatio = '9:16',
+    } = req.body;
+
+    if (!videoUrl) {
+      return res.status(400).json({ error: 'videoUrl is required' });
+    }
+
+    const useASS = format === 'ass' || (style && Object.keys(style).length > 0);
+    const playRes = aspectRatio === '9:16' ? { x: 1080, y: 1920 } : aspectRatio === '16:9' ? { x: 1920, y: 1080 } : { x: 1080, y: 1080 };
+
+    let subContent;
+    if (segments && Array.isArray(segments)) {
+      const segs = segments.map((s) => ({ start: s.start, end: s.end, text: s.text }));
+      if (useASS) {
+        subContent = segmentsToASS(segs, style || {}, playRes.x, playRes.y);
+      } else {
+        subContent = segmentsToSRT(segs);
+      }
+    } else if (srtUrl && !useASS) {
+      const srtRes = await fetch(srtUrl);
+      subContent = await srtRes.text();
+    } else {
+      return res.status(400).json({ error: 'segments or srtUrl is required' });
+    }
+
+    const bitrateMap = { fast: '2M', balanced: '4M', high: '8M' };
+    const bitrate = bitrateMap[quality] || '4M';
+
+    logStep(1, 'Downloading video from Supabase...', null);
+    videoPath = await downloadFile(videoUrl);
+
+    const ext = useASS ? 'ass' : 'srt';
+    logStep(2, `Writing ${ext.toUpperCase()} file (${useASS ? 'ASS - fonts, outline, TikTok-style' : 'SRT'})...`, null);
+    subPath = path.join('uploads', `burn-${Date.now()}.${ext}`);
+    fs.writeFileSync(subPath, subContent, 'utf8');
+
+    outputPath = path.join('uploads', `burn-${Date.now()}-output.mp4`);
+
+    logStep(3, 'Burning subtitles with FFmpeg (server-side)...', null);
+    const subPathResolved = path.resolve(subPath).replace(/\\/g, '/');
+    const subPathEscaped = subPathResolved.replace(/:/g, '\\:').replace(/'/g, "'\\''");
+    const fontsDir = path.join(__dirname, 'fonts');
+    const fontsDirResolved = fs.existsSync(fontsDir) ? path.resolve(fontsDir).replace(/\\/g, '/') : null;
+    const vfFilter = fontsDirResolved
+      ? `subtitles='${subPathEscaped}':fontsdir='${fontsDirResolved.replace(/'/g, "'\\''")}'`
+      : `subtitles='${subPathEscaped}'`;
+
+    await new Promise((resolve, reject) => {
+      ffmpeg(videoPath)
+        .outputOptions([
+          '-vf', vfFilter,
+          '-b:v', bitrate,
+          '-c:a', 'copy',
+        ])
+        .on('end', resolve)
+        .on('error', reject)
+        .save(outputPath);
+    });
+
+    logStep(4, 'Uploading to Supabase exports...', null);
+    const exportsPath = `${userId}/exports/${Date.now()}-burned.mp4`;
+    const outputBuffer = fs.readFileSync(outputPath);
+    const { error: exportError } = await supabase.storage
+      .from('exports')
+      .upload(exportsPath, outputBuffer, {
+        contentType: 'video/mp4',
+        upsert: false,
+      });
+
+    if (exportError) {
+      throw new Error(`Export upload failed: ${exportError.message}`);
+    }
+
+    const { data: exportUrl } = supabase.storage.from('exports').getPublicUrl(exportsPath);
+
+    const totalTime = Date.now() - startTime;
+    console.log(`   └─ Burn complete in ${(totalTime / 1000).toFixed(1)}s`);
+
+    setTimeout(() => {
+      try {
+        if (videoPath && fs.existsSync(videoPath)) fs.unlinkSync(videoPath);
+        if (subPath && fs.existsSync(subPath)) fs.unlinkSync(subPath);
+        if (outputPath && fs.existsSync(outputPath)) fs.unlinkSync(outputPath);
+      } catch {}
+    }, 2000);
+
+    res.json({
+      success: true,
+      downloadUrl: exportUrl.publicUrl,
+      processingTimeMs: totalTime,
+    });
+  } catch (error) {
+    console.error('❌ Burn error:', error);
+    try {
+      if (videoPath && fs.existsSync(videoPath)) fs.unlinkSync(videoPath);
+      if (subPath && fs.existsSync(subPath)) fs.unlinkSync(subPath);
+      if (outputPath && fs.existsSync(outputPath)) fs.unlinkSync(outputPath);
+    } catch {}
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
 // ============================================
 // MAIN ENDPOINT
 // ============================================
@@ -265,6 +476,25 @@ app.post('/process-video', upload.single('video'), async (req, res) => {
     }
     logStep(3, `Audio uploaded to Supabase: ${audioStoragePath}`, Date.now() - stepStart);
 
+    // Step 3b: Upload video to Supabase Storage (for preview and burn)
+    const videoStoragePath = `${userId}/videos/${timestamp}-${req.file.originalname || 'video.mp4'}`;
+    const videoBuffer = fs.readFileSync(videoPath);
+    const { error: videoUploadError } = await supabase.storage
+      .from('videos')
+      .upload(videoStoragePath, videoBuffer, {
+        contentType: req.file.mimetype || 'video/mp4',
+        upsert: false,
+      });
+
+    let videoUrl = null;
+    if (!videoUploadError) {
+      const { data: videoUrlData } = supabase.storage.from('videos').getPublicUrl(videoStoragePath);
+      videoUrl = videoUrlData.publicUrl;
+      console.log(`   └─ Video uploaded to Supabase: ${videoStoragePath}`);
+    } else {
+      console.log(`   └─ Video upload skipped (bucket may not exist): ${videoUploadError.message}`);
+    }
+
     // Step 4: Send to RunPod for transcription (may have cold start!)
     logStep(4, 'Sending audio to RunPod serverless endpoint...', null);
     stepStart = Date.now();
@@ -328,6 +558,7 @@ app.post('/process-video', upload.single('video'), async (req, res) => {
     // Return response
     res.json({
       success: true,
+      videoUrl: videoUrl || audioUrl.publicUrl,
       audioUrl: audioUrl.publicUrl,
       subtitles: {
         srt: srtUrl.publicUrl,
@@ -378,11 +609,13 @@ app.get('/', (req, res) => {
       'FFmpeg audio extraction',
       'RunPod Hinglish transcription',
       'SRT/VTT generation',
+      'Subtitle burn to video',
       'Supabase Storage integration',
       'All-in-one pipeline',
     ],
     endpoints: {
       process: 'POST /process-video',
+      burn: 'POST /burn-subtitles',
       health: 'GET /health',
     },
   });

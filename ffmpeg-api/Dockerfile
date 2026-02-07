@@ -3,8 +3,8 @@
 
 FROM node:20-slim
 
-# Install FFmpeg
-RUN apt-get update && apt-get install -y ffmpeg && apt-get clean && rm -rf /var/lib/apt/lists/*
+# Install FFmpeg + fontconfig for ASS subtitle burn (fonts, outline, libass)
+RUN apt-get update && apt-get install -y ffmpeg fontconfig fonts-liberation && apt-get clean && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 

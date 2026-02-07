@@ -1,0 +1,3 @@
+# Custom fonts for ASS subtitle burn (TikTok-style)
+# Add TTF/OTF files here: Bangers.ttf, Impact.ttf, Montserrat.ttf, BebasNeue-Regular.ttf
+# FFmpeg uses fontsdir when burning - server-side only, never in browser
