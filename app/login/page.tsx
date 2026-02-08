@@ -1,16 +1,29 @@
 "use client";
 
-import { useState } from "react";
-import { useRouter } from "next/navigation";
+import { useState, useEffect } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 
 export default function LoginPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [email, setEmail] = useState("");
   const [otpSent, setOtpSent] = useState(false);
   const [otp, setOtp] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const err = searchParams.get("error");
+    const reason = searchParams.get("reason");
+    if (err === "auth") {
+      setError(
+        reason
+          ? `Auth failed: ${reason}`
+          : "Auth failed. Add http://localhost:3000/auth/callback to Supabase Auth → URL Configuration → Redirect URLs."
+      );
+    }
+  }, [searchParams]);
 
   const handleSendOtp = async (e: React.FormEvent) => {
     e.preventDefault();

@@ -26,22 +26,35 @@ export async function processVideo(
   file: File,
   userId: string = "anonymous"
 ): Promise<ProcessVideoResponse> {
+  console.log("[processVideo] Starting upload...");
+  console.log("[processVideo] File:", file.name, file.size, "bytes");
+  console.log("[processVideo] User:", userId);
+  console.log("[processVideo] Railway API URL:", RAILWAY_API_URL);
+
   const formData = new FormData();
   formData.append("video", file);
   formData.append("userId", userId);
 
-  const response = await fetch(`${RAILWAY_API_URL}/process-video`, {
-    method: "POST",
-    body: formData,
-  });
+  try {
+    console.log("[processVideo] Sending POST to:", `${RAILWAY_API_URL}/process-video`);
+    const response = await fetch(`${RAILWAY_API_URL}/process-video`, {
+      method: "POST",
+      body: formData,
+    });
 
-  const data = await response.json();
+    console.log("[processVideo] Response status:", response.status);
+    const data = await response.json();
+    console.log("[processVideo] Response data:", data);
 
-  if (!response.ok) {
-    throw new Error(data.error || `Server error: ${response.status}`);
+    if (!response.ok) {
+      throw new Error(data.error || `Server error: ${response.status}`);
+    }
+
+    return data;
+  } catch (error) {
+    console.error("[processVideo] Error:", error);
+    throw error;
   }
-
-  return data;
 }
 
 export interface BurnSubtitlesResponse {

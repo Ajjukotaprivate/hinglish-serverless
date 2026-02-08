@@ -9,6 +9,8 @@ export function VideoCanvas() {
   const {
     videoUrl,
     videoDuration,
+    isProcessing,
+    processingStep,
     setPlayhead,
     setPlaying,
     aspectRatio,
@@ -53,10 +55,25 @@ export function VideoCanvas() {
         className={`flex flex-1 items-center justify-center bg-black ${aspectClass} max-h-full`}
       >
         <div className="text-center text-gray-500">
-          <p className="text-4xl mb-4">📹</p>
-          <p className="text-lg font-medium">No video loaded</p>
-          <p className="text-sm">Drag a video from Media to get started</p>
-          <p className="mt-2 text-xs">Or use Upload Media in the left panel</p>
+          {isProcessing ? (
+            <>
+              <span className="mb-4 inline-block h-12 w-12 animate-spin rounded-full border-4 border-white border-t-transparent" />
+              <p className="text-lg font-medium text-white">
+                {processingStep || "Processing..."}
+              </p>
+              <p className="mt-2 text-sm text-gray-400">
+                This may take 1–2 minutes for transcription
+              </p>
+            </>
+          ) : (
+            <>
+              <p className="mb-4 text-4xl">📹</p>
+              <p className="text-lg font-medium">No video loaded</p>
+              <p className="text-sm">
+                Sign in and use Upload Media in the left panel to get started
+              </p>
+            </>
+          )}
         </div>
       </div>
     );

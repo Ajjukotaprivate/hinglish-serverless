@@ -247,8 +247,8 @@ async function transcribeWithRunPod(audioBase64, stepStartTime) {
     if (status !== lastStatus) {
       const elapsed = ((Date.now() - (stepStartTime || Date.now())) / 1000).toFixed(1);
       const statusMeaning = status === 'IN_QUEUE' ? '(cold start - GPU worker spinning up)' :
-                         status === 'IN_PROGRESS' ? '(transcribing with Whisper model)' :
-                         status === 'COMPLETED' ? '(done!)' : '';
+        status === 'IN_PROGRESS' ? '(transcribing with Whisper model)' :
+          status === 'COMPLETED' ? '(done!)' : '';
       console.log(`   └─ [${elapsed}s] RunPod: ${status} ${statusMeaning}`);
       lastStatus = status;
     }
@@ -268,24 +268,72 @@ async function transcribeWithRunPod(audioBase64, stepStartTime) {
 }
 
 /**
- * Download file from URL to local path
+ * Download file from URL to local path with proper error handling
  */
 function downloadFile(url) {
   return new Promise((resolve, reject) => {
+    console.log('   └─ Downloading video from:', url);
     const protocol = url.startsWith('https') ? https : http;
-    const file = fs.createWriteStream(path.join('uploads', `burn-${Date.now()}-video.mp4`));
-    protocol.get(url, (response) => {
+    const tempPath = path.join('uploads', `burn-${Date.now()}-video.mp4`);
+    const file = fs.createWriteStream(tempPath);
+
+    const request = protocol.get(url, (response) => {
+      console.log('   └─ Response status:', response.statusCode);
+      console.log('   └─ Content-Type:', response.headers['content-type']);
+      console.log('   └─ Content-Length:', response.headers['content-length']);
+
+      // Handle redirects
       if (response.statusCode === 302 || response.statusCode === 301) {
+        console.log('   └─ Following redirect to:', response.headers.location);
+        file.close();
+        fs.unlink(tempPath, () => { });
         return downloadFile(response.headers.location).then(resolve).catch(reject);
       }
+
+      // Check for errors
+      if (response.statusCode !== 200) {
+        file.close();
+        fs.unlink(tempPath, () => { });
+        return reject(new Error(`Download failed with status ${response.statusCode}`));
+      }
+
       response.pipe(file);
       file.on('finish', () => {
-        file.close();
-        resolve(file.path);
+        file.close(() => {
+          // Verify file has content
+          try {
+            const stats = fs.statSync(tempPath);
+            console.log('   └─ Downloaded file size:', stats.size, 'bytes');
+            if (stats.size < 1000) {
+              fs.unlink(tempPath, () => { });
+              return reject(new Error(`Downloaded file is too small (${stats.size} bytes), likely corrupted or empty`));
+            }
+            resolve(tempPath);
+          } catch (err) {
+            reject(new Error(`Failed to verify downloaded file: ${err.message}`));
+          }
+        });
       });
-    }).on('error', (err) => {
-      fs.unlink(file.path, () => {});
-      reject(err);
+
+      file.on('error', (err) => {
+        file.close();
+        fs.unlink(tempPath, () => { });
+        reject(new Error(`File write error: ${err.message}`));
+      });
+    });
+
+    request.on('error', (err) => {
+      file.close();
+      fs.unlink(tempPath, () => { });
+      reject(new Error(`Request error: ${err.message}`));
+    });
+
+    // Add timeout
+    request.setTimeout(60000, () => {
+      request.destroy();
+      file.close();
+      fs.unlink(tempPath, () => { });
+      reject(new Error('Download timeout after 60 seconds'));
     });
   });
 }
@@ -390,7 +438,7 @@ app.post('/burn-subtitles', express.json(), async (req, res) => {
         if (videoPath && fs.existsSync(videoPath)) fs.unlinkSync(videoPath);
         if (subPath && fs.existsSync(subPath)) fs.unlinkSync(subPath);
         if (outputPath && fs.existsSync(outputPath)) fs.unlinkSync(outputPath);
-      } catch {}
+      } catch { }
     }, 2000);
 
     res.json({
@@ -404,7 +452,7 @@ app.post('/burn-subtitles', express.json(), async (req, res) => {
       if (videoPath && fs.existsSync(videoPath)) fs.unlinkSync(videoPath);
       if (subPath && fs.existsSync(subPath)) fs.unlinkSync(subPath);
       if (outputPath && fs.existsSync(outputPath)) fs.unlinkSync(outputPath);
-    } catch {}
+    } catch { }
     res.status(500).json({ success: false, error: error.message });
   }
 });
@@ -552,7 +600,7 @@ app.post('/process-video', upload.single('video'), async (req, res) => {
         if (fs.existsSync(videoPath)) fs.unlinkSync(videoPath);
         if (fs.existsSync(audioPath)) fs.unlinkSync(audioPath);
         console.log('🧹 Temporary files cleaned up');
-      } catch {}
+      } catch { }
     }, 1000);
 
     // Return response
@@ -587,7 +635,7 @@ app.post('/process-video', upload.single('video'), async (req, res) => {
     try {
       if (videoPath && fs.existsSync(videoPath)) fs.unlinkSync(videoPath);
       if (audioPath && fs.existsSync(audioPath)) fs.unlinkSync(audioPath);
-    } catch {}
+    } catch { }
 
     res.status(500).json({
       success: false,
@@ -622,8 +670,8 @@ app.get('/', (req, res) => {
 });
 
 app.get('/health', (req, res) => {
-  res.json({ 
-    status: 'ok', 
+  res.json({
+    status: 'ok',
     timestamp: new Date().toISOString(),
     services: {
       ffmpeg: '✅ Available',

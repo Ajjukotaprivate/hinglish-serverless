@@ -65,11 +65,7 @@ export function TopBar() {
     }
   }, [projectId, isDirty, projectName, videoUrl, audioUrl, srtUrl, vttUrl, segments, aspectRatio, setSaving, setDirty]);
 
-  useEffect(() => {
-    if (!projectId || !isDirty) return;
-    const timer = setTimeout(handleSave, AUTO_SAVE_INTERVAL);
-    return () => clearTimeout(timer);
-  }, [projectId, isDirty, handleSave]);
+  // Note: Auto-save is handled by useAutoSave hook in page.tsx
 
   return (
     <header className="flex h-14 items-center justify-between border-b border-gray-200 bg-white px-4">

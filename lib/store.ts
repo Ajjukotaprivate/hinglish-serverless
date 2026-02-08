@@ -20,6 +20,8 @@ interface EditorState {
   vttUrl: string | null;
   mediaItems: MediaItem[];
   videoDuration: number;
+  isProcessing: boolean;
+  processingStep: string;
 
   // Timeline
   segments: SubtitleSegment[];
@@ -52,6 +54,7 @@ interface EditorState {
   }) => void;
   setMediaItems: (items: MediaItem[]) => void;
   addMediaItem: (item: MediaItem) => void;
+  setProcessing: (processing: boolean, step?: string) => void;
 
   setSegments: (segments: SubtitleSegment[]) => void;
   updateSegment: (id: string, updates: Partial<SubtitleSegment>) => void;
@@ -95,6 +98,8 @@ const initialState = {
   vttUrl: null,
   mediaItems: [],
   videoDuration: 0,
+  isProcessing: false,
+  processingStep: "",
   segments: [],
   playhead: 0,
   isPlaying: false,
@@ -122,6 +127,8 @@ export const useEditorStore = create<EditorState>((set) => ({
       };
     }),
   setMediaItems: (items) => set({ mediaItems: items }),
+  setProcessing: (processing, step = "") =>
+    set({ isProcessing: processing, processingStep: step }),
   addMediaItem: (item) =>
     set((state) => ({
       mediaItems: [...state.mediaItems, item],
