@@ -268,13 +268,59 @@ async function transcribeWithRunPod(audioBase64, stepStartTime) {
 }
 
 /**
- * Download file from URL to local path with proper error handling
+ * Parse Supabase storage URL to extract bucket and path
+ * Returns null if URL is not a Supabase storage URL
  */
-function downloadFile(url) {
+function parseSupabaseStorageUrl(url) {
+  // Match: https://<project>.supabase.co/storage/v1/object/public/<bucket>/<path>
+  // Or:    https://<project>.supabase.co/storage/v1/object/<bucket>/<path>
+  const match = url.match(/supabase\.co\/storage\/v1\/object\/(?:public\/)?([^/]+)\/(.+)$/);
+  if (match) {
+    return { bucket: match[1], path: match[2] };
+  }
+  return null;
+}
+
+/**
+ * Download file using Supabase SDK (for private buckets) or HTTP (for external URLs)
+ * Service role key bypasses RLS for server-side operations
+ */
+async function downloadFile(url) {
+  const tempPath = path.join('uploads', `burn-${Date.now()}-video.mp4`);
+  console.log('   └─ Downloading video from:', url);
+
+  // Try Supabase SDK first for Supabase storage URLs
+  const storageInfo = parseSupabaseStorageUrl(url);
+  if (storageInfo) {
+    console.log(`   └─ Detected Supabase storage: bucket="${storageInfo.bucket}", path="${storageInfo.path}"`);
+    try {
+      const { data, error } = await supabase.storage
+        .from(storageInfo.bucket)
+        .download(storageInfo.path);
+
+      if (error) {
+        throw new Error(`Supabase download failed: ${error.message}`);
+      }
+
+      // Convert Blob to Buffer and write to file
+      const buffer = Buffer.from(await data.arrayBuffer());
+      console.log('   └─ Downloaded via Supabase SDK:', buffer.length, 'bytes');
+
+      if (buffer.length < 1000) {
+        throw new Error(`Downloaded file is too small (${buffer.length} bytes), likely corrupted or empty`);
+      }
+
+      fs.writeFileSync(tempPath, buffer);
+      return tempPath;
+    } catch (err) {
+      console.log('   └─ Supabase SDK download failed, trying HTTP fallback:', err.message);
+      // Fall through to HTTP download
+    }
+  }
+
+  // HTTP fallback for external URLs or if Supabase SDK fails
   return new Promise((resolve, reject) => {
-    console.log('   └─ Downloading video from:', url);
     const protocol = url.startsWith('https') ? https : http;
-    const tempPath = path.join('uploads', `burn-${Date.now()}-video.mp4`);
     const file = fs.createWriteStream(tempPath);
 
     const request = protocol.get(url, (response) => {
@@ -428,7 +474,14 @@ app.post('/burn-subtitles', express.json(), async (req, res) => {
       throw new Error(`Export upload failed: ${exportError.message}`);
     }
 
-    const { data: exportUrl } = supabase.storage.from('exports').getPublicUrl(exportsPath);
+    // Generate signed URL (24 hours for downloads)
+    const { data: signedUrlData, error: signedError } = await supabase.storage
+      .from('exports')
+      .createSignedUrl(exportsPath, 86400); // 24 hours
+
+    if (signedError) {
+      throw new Error(`Failed to create download URL: ${signedError.message}`);
+    }
 
     const totalTime = Date.now() - startTime;
     console.log(`   └─ Burn complete in ${(totalTime / 1000).toFixed(1)}s`);
@@ -443,8 +496,10 @@ app.post('/burn-subtitles', express.json(), async (req, res) => {
 
     res.json({
       success: true,
-      downloadUrl: exportUrl.publicUrl,
+      downloadUrl: signedUrlData.signedUrl,
+      storagePath: exportsPath,
       processingTimeMs: totalTime,
+      expiresIn: 86400, // 24 hours
     });
   } catch (error) {
     console.error('❌ Burn error:', error);
@@ -583,10 +638,16 @@ app.post('/process-video', upload.single('video'), async (req, res) => {
       console.log(`   └─ Word-level JSON uploaded`);
     }
 
-    // Step 8: Get public URLs
-    const { data: audioUrl } = supabase.storage.from('audio').getPublicUrl(audioStoragePath);
-    const { data: srtUrl } = supabase.storage.from('subtitles').getPublicUrl(srtPath);
-    const { data: vttUrl } = supabase.storage.from('subtitles').getPublicUrl(vttPath);
+    // Step 8: Generate signed URLs (expire in 1 hour for security)
+    // For private buckets, signed URLs are required
+    const SIGNED_URL_EXPIRY = 3600; // 1 hour
+
+    const [videoSignedUrl, audioSignedUrl, srtSignedUrl, vttSignedUrl] = await Promise.all([
+      videoUrl ? supabase.storage.from('videos').createSignedUrl(videoStoragePath, SIGNED_URL_EXPIRY) : null,
+      supabase.storage.from('audio').createSignedUrl(audioStoragePath, SIGNED_URL_EXPIRY),
+      supabase.storage.from('subtitles').createSignedUrl(srtPath, SIGNED_URL_EXPIRY),
+      supabase.storage.from('subtitles').createSignedUrl(vttPath, SIGNED_URL_EXPIRY),
+    ]);
 
     const totalTime = Date.now() - startTime;
     console.log(`\n${'='.repeat(60)}`);
@@ -603,28 +664,34 @@ app.post('/process-video', upload.single('video'), async (req, res) => {
       } catch { }
     }, 1000);
 
-    // Return response
+    // Return response with signed URLs
+    // Note: videoUrl will be null if video upload failed - frontend should handle this
     res.json({
       success: true,
-      videoUrl: videoUrl || audioUrl.publicUrl,
-      audioUrl: audioUrl.publicUrl,
+      videoUrl: videoSignedUrl?.data?.signedUrl || null,
+      audioUrl: audioSignedUrl?.data?.signedUrl,
       subtitles: {
-        srt: srtUrl.publicUrl,
-        vtt: vttUrl.publicUrl,
+        srt: srtSignedUrl?.data?.signedUrl,
+        vtt: vttSignedUrl?.data?.signedUrl,
         text: transcription.text,
         segments: transcription.segments,
         words: transcription.words,
       },
+      // Include storage paths so frontend can request new signed URLs if needed
+      storagePaths: {
+        video: videoUrl ? videoStoragePath : null,
+        audio: audioStoragePath,
+        srt: srtPath,
+        vtt: vttPath,
+      },
       metadata: {
         originalFilename: req.file.originalname,
         originalSize: req.file.size,
-        audioPath: audioStoragePath,
-        srtPath,
-        vttPath,
         timestamp,
         processingTimeMs: totalTime,
         segmentCount: transcription.segments.length,
         wordCount: transcription.words?.length || 0,
+        signedUrlExpiresIn: SIGNED_URL_EXPIRY,
       },
     });
 
