@@ -1,10 +1,107 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { MediaPanel } from "@/components/media/MediaPanel";
 import { useEditorStore } from "@/lib/store";
+import { transcribeVideo } from "@/lib/api";
+import type { TranscriptionLanguage } from "@/lib/api";
+import { supabase } from "@/lib/supabase";
+import { v4 as uuidv4 } from "uuid";
+import type { SubtitleSegment } from "@/lib/types";
 
 type NavItem = "media" | "autoedit" | "subtitles" | "style" | "progress" | "text" | "audio" | "settings";
+
+const LANG_OPTIONS: { value: TranscriptionLanguage; label: string }[] = [
+  { value: "hinglish", label: "Hinglish" },
+  { value: "hindi", label: "Hindi" },
+  { value: "english", label: "English" },
+];
+
+function SubtitlesTranscriptionPanel() {
+  const {
+    videoUrl,
+    transcriptionLanguage,
+    setTranscriptionLanguage,
+    setMedia,
+    setSegments,
+    setProcessing,
+    isProcessing,
+  } = useEditorStore();
+  const [userId, setUserId] = useState<string>("anonymous");
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    supabase.auth.getUser().then(({ data: { user } }) => {
+      setUserId(user?.id ?? "anonymous");
+    });
+  }, []);
+
+  const canStart = Boolean(videoUrl && !isProcessing);
+
+  const handleStartTranscription = async () => {
+    if (!videoUrl) return;
+    setError(null);
+    setProcessing(true, "Transcribing...");
+    try {
+      const result = await transcribeVideo(videoUrl, userId, transcriptionLanguage);
+      if (!result.success || !result.subtitles?.segments) {
+        throw new Error(result.error || "Transcription failed");
+      }
+      const segmentsWithIds: SubtitleSegment[] = (result.subtitles.segments || []).map(
+        (seg: { start: number; end: number; text: string }) => ({
+          id: uuidv4(),
+          start: seg.start,
+          end: seg.end,
+          text: seg.text,
+        })
+      );
+      setSegments(segmentsWithIds);
+      setMedia({
+        audioUrl: result.audioUrl ?? undefined,
+        srtUrl: result.subtitles.srt ?? undefined,
+        vttUrl: result.subtitles.vtt ?? undefined,
+      });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Transcription failed");
+    } finally {
+      setProcessing(false);
+    }
+  };
+
+  return (
+    <div className="space-y-3">
+      <p className="text-sm font-medium text-gray-700">TRANSCRIPTION</p>
+      <p className="text-sm text-gray-500">
+        Generate subtitles from your video&apos;s audio. Upload a video first, then start transcription.
+      </p>
+      <select
+        className="w-full rounded border border-gray-300 px-3 py-2 text-sm"
+        value={transcriptionLanguage}
+        onChange={(e) => setTranscriptionLanguage(e.target.value as TranscriptionLanguage)}
+      >
+        {LANG_OPTIONS.map((opt) => (
+          <option key={opt.value} value={opt.value}>
+            {opt.label}
+          </option>
+        ))}
+      </select>
+      <button
+        type="button"
+        disabled={!canStart}
+        onClick={handleStartTranscription}
+        className="w-full rounded bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:bg-gray-300 disabled:text-gray-500 disabled:cursor-not-allowed"
+      >
+        {isProcessing ? "Transcribing…" : "Start Transcription"}
+      </button>
+      {!videoUrl && (
+        <p className="text-xs text-gray-400">
+          Upload a video in Media to enable
+        </p>
+      )}
+      {error && <p className="text-xs text-red-600">{error}</p>}
+    </div>
+  );
+}
 
 const navItems: { id: NavItem; label: string; icon: string }[] = [
   { id: "media", label: "Media", icon: "📁" },
@@ -44,27 +141,7 @@ export function Sidebar() {
       <div className="flex-1 overflow-y-auto border-t border-gray-100 p-4">
         {active === "media" && <MediaPanel />}
         {active === "subtitles" && (
-          <div className="space-y-3">
-            <p className="text-sm font-medium text-gray-700">TRANSCRIPTION</p>
-            <p className="text-sm text-gray-500">
-              Generate subtitles from your video&apos;s audio. Add video to timeline first.
-            </p>
-            <select className="w-full rounded border border-gray-300 px-3 py-2 text-sm">
-              <option>Hinglish</option>
-              <option>Hindi</option>
-              <option>English</option>
-            </select>
-            <button
-              type="button"
-              disabled
-              className="w-full rounded bg-gray-300 px-4 py-2 text-sm font-medium text-gray-500"
-            >
-              Start Transcription
-            </button>
-            <p className="text-xs text-gray-400">
-              Upload video in Media to enable
-            </p>
-          </div>
+          <SubtitlesTranscriptionPanel />
         )}
         {active === "style" && (
           <div className="text-sm text-gray-500">

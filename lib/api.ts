@@ -22,9 +22,63 @@ export interface ProcessVideoResponse {
   };
 }
 
-export async function processVideo(
+/** Upload video only; no transcription. Use for preview. */
+export async function uploadVideoOnly(
   file: File,
   userId: string = "anonymous"
+): Promise<{ success: boolean; videoUrl?: string; error?: string }> {
+  const formData = new FormData();
+  formData.append("video", file);
+  formData.append("userId", userId);
+  const response = await fetch(`${RAILWAY_API_URL}/upload-video`, {
+    method: "POST",
+    body: formData,
+  });
+  const data = await response.json();
+  if (!response.ok) {
+    throw new Error(data.error || `Upload failed: ${response.status}`);
+  }
+  return data;
+}
+
+/** Transcribe existing video by URL; returns segments and subtitle URLs. */
+export type TranscriptionLanguage = "hinglish" | "hindi" | "english";
+
+export interface TranscribeResponse {
+  success: boolean;
+  error?: string;
+  segments?: { start: number; end: number; text: string }[];
+  subtitles?: {
+    srt: string;
+    vtt: string;
+    text: string;
+    segments: { start: number; end: number; text: string }[];
+    words?: unknown[];
+  };
+  audioUrl?: string;
+}
+
+export async function transcribeVideo(
+  videoUrl: string,
+  userId: string = "anonymous",
+  language: TranscriptionLanguage = "hinglish"
+): Promise<TranscribeResponse> {
+  const response = await fetch(`${RAILWAY_API_URL}/transcribe`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ videoUrl, userId, language }),
+  });
+  const data = await response.json();
+  if (!response.ok) {
+    throw new Error(data.error || `Transcribe failed: ${response.status}`);
+  }
+  return data;
+}
+
+export async function processVideo(
+  file: File,
+  userId: string = "anonymous",
+  language?: TranscriptionLanguage
 ): Promise<ProcessVideoResponse> {
   console.log("[processVideo] Starting upload...");
   console.log("[processVideo] File:", file.name, file.size, "bytes");
@@ -34,6 +88,7 @@ export async function processVideo(
   const formData = new FormData();
   formData.append("video", file);
   formData.append("userId", userId);
+  if (language) formData.append("language", language);
 
   try {
     console.log("[processVideo] Sending POST to:", `${RAILWAY_API_URL}/process-video`);

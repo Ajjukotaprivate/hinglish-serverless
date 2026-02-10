@@ -5,49 +5,71 @@ import type { SubtitleSegment } from "@/lib/types";
 
 interface SubtitleTrackProps {
   segments: SubtitleSegment[];
+  pixelsPerSecond: number;
+  scrollLeft: number;
+  onScroll: (scrollLeft: number) => void;
 }
 
-const PIXELS_PER_SECOND = 50; // 50px per second of video
-
-export function SubtitleTrack({ segments }: SubtitleTrackProps) {
+export function SubtitleTrack({ segments, pixelsPerSecond, scrollLeft, onScroll }: SubtitleTrackProps) {
   const { videoDuration, playhead, selectedSegmentId, setSelectedSegment, setPlayhead } =
     useEditorStore();
 
-  const maxDuration = Math.max(videoDuration, 10); // Minimum 10s width
-  const trackWidth = maxDuration * PIXELS_PER_SECOND;
-  const playheadPosition = playhead * PIXELS_PER_SECOND;
+  const maxDuration = Math.max(videoDuration, 10);
+  const trackWidth = maxDuration * pixelsPerSecond;
+  const playheadPosition = playhead * pixelsPerSecond;
 
-  if (segments.length === 0) {
-    return (
-      <div className="flex h-16 items-center justify-center border-b border-gray-200 bg-gray-50 text-sm text-gray-500">
-        No subtitles yet. Upload a video to generate transcription.
-      </div>
-    );
-  }
+  const handleScroll = (e: React.UIEvent<HTMLDivElement>) => {
+    onScroll(e.currentTarget.scrollLeft);
+  };
+
+  const handleSegmentClick = (seg: SubtitleSegment) => {
+    setSelectedSegment(seg.id);
+    setPlayhead(seg.start);
+    const video = document.getElementById("editor-video") as HTMLVideoElement;
+    if (video) video.currentTime = seg.start;
+  };
 
   return (
-    <div className="flex h-16 border-b border-gray-200">
-      {/* Track label */}
-      <div className="flex w-14 flex-shrink-0 items-center justify-center border-r border-gray-200 bg-gray-50">
-        <span className="text-xs text-gray-500">Subs</span>
+    <div className="flex h-14 border-b border-gray-700">
+      {/* Track controls */}
+      <div className="flex w-28 flex-shrink-0 items-center gap-1 border-r border-gray-700 bg-gray-800 px-2">
+        <span className="text-[10px] text-gray-400">1</span>
+        <button className="text-gray-300 hover:text-white" title="Toggle visibility">
+          <svg className="h-3.5 w-3.5" fill="currentColor" viewBox="0 0 24 24">
+            <path d="M12 4.5C7 4.5 2.73 7.61 1 12c1.73 4.39 6 7.5 11 7.5s9.27-3.11 11-7.5c-1.73-4.39-6-7.5-11-7.5zM12 17c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5zm0-8c-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3-1.34-3-3-3z" />
+          </svg>
+        </button>
+        <div className="mx-1 h-4 w-px bg-gray-700" />
+        <button className="text-gray-500 hover:text-gray-300" title="Add">+</button>
+        <button className="text-gray-500 hover:text-red-400" title="Delete">
+          <svg className="h-3.5 w-3.5" fill="currentColor" viewBox="0 0 24 24">
+            <path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z" />
+          </svg>
+        </button>
       </div>
 
-      {/* Scrollable track area */}
-      <div className="flex-1 overflow-x-auto">
+      {/* Scrollable track */}
+      <div
+        className="flex-1 overflow-x-auto bg-gray-850"
+        style={{ backgroundColor: "#1a1d21" }}
+        onScroll={handleScroll}
+      >
         <div
-          className="relative h-full bg-gray-100"
+          className="relative h-full"
           style={{ width: `${trackWidth}px`, minWidth: "100%" }}
         >
-          {/* Playhead indicator */}
+          {/* Playhead */}
           <div
-            className="absolute top-0 bottom-0 w-0.5 bg-red-500 z-10"
+            className="absolute top-0 bottom-0 z-10 w-0.5"
             style={{ left: `${playheadPosition}px` }}
-          />
+          >
+            <div className="absolute top-0 bottom-0 w-px bg-white opacity-80" />
+          </div>
 
-          {/* Subtitle segments */}
+          {/* Subtitle segments - orange/coral like SubtitlesFast */}
           {segments.map((seg) => {
-            const left = seg.start * PIXELS_PER_SECOND;
-            const width = Math.max((seg.end - seg.start) * PIXELS_PER_SECOND, 30); // Min 30px width
+            const left = seg.start * pixelsPerSecond;
+            const width = Math.max((seg.end - seg.start) * pixelsPerSecond, 30);
             const isSelected = selectedSegmentId === seg.id;
 
             return (
@@ -55,22 +77,13 @@ export function SubtitleTrack({ segments }: SubtitleTrackProps) {
                 key={seg.id}
                 role="button"
                 tabIndex={0}
-                onClick={() => {
-                  setSelectedSegment(seg.id);
-                  setPlayhead(seg.start);
-                  // Seek video to this time
-                  const video = document.getElementById("editor-video") as HTMLVideoElement;
-                  if (video) video.currentTime = seg.start;
-                }}
+                onClick={() => handleSegmentClick(seg)}
                 onKeyDown={(e) => {
-                  if (e.key === "Enter" || e.key === " ") {
-                    setSelectedSegment(seg.id);
-                    setPlayhead(seg.start);
-                  }
+                  if (e.key === "Enter" || e.key === " ") handleSegmentClick(seg);
                 }}
-                className={`absolute top-1 bottom-1 cursor-pointer rounded px-2 text-xs transition-colors flex items-center overflow-hidden ${isSelected
-                    ? "bg-blue-500 text-white border-2 border-blue-700"
-                    : "bg-purple-200 text-gray-800 border border-purple-300 hover:bg-purple-300"
+                className={`absolute top-1.5 bottom-1.5 cursor-pointer rounded-sm transition-all flex items-center justify-center overflow-hidden ${isSelected
+                    ? "ring-2 ring-white bg-orange-500"
+                    : "bg-orange-500 hover:bg-orange-400"
                   }`}
                 style={{
                   left: `${left}px`,
@@ -78,13 +91,21 @@ export function SubtitleTrack({ segments }: SubtitleTrackProps) {
                 }}
                 title={seg.text}
               >
-                <span className="truncate">{seg.text}</span>
+                <span className="truncate px-1 text-[10px] font-medium text-white drop-shadow">
+                  {seg.text.length > 15 ? seg.text.slice(0, 15) + "…" : seg.text}
+                </span>
               </div>
             );
           })}
+
+          {/* Empty state */}
+          {segments.length === 0 && (
+            <div className="flex h-full items-center justify-center">
+              <span className="text-xs text-gray-500">No subtitles</span>
+            </div>
+          )}
         </div>
       </div>
     </div>
   );
 }
-

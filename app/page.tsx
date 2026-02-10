@@ -10,6 +10,15 @@ import { VideoCanvas } from "@/components/editor/VideoCanvas";
 import { useEditorStore } from "@/lib/store";
 import { useAutoSave } from "@/lib/useAutoSave";
 
+/** Show timeline only when there is video or subtitles; otherwise blank. */
+function TimelineOrBlank() {
+  const videoUrl = useEditorStore((s) => s.videoUrl);
+  const segments = useEditorStore((s) => s.segments);
+  const showTimeline = Boolean(videoUrl || segments.length > 0);
+  if (!showTimeline) return null;
+  return <Timeline />;
+}
+
 export default function Home() {
   const searchParams = useSearchParams();
 
@@ -60,7 +69,7 @@ export default function Home() {
           <div className="flex flex-1 items-center justify-center p-4">
             <VideoCanvas />
           </div>
-          <Timeline />
+          <TimelineOrBlank />
         </main>
         <RightPanel />
       </div>

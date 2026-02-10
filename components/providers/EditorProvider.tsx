@@ -7,6 +7,7 @@ import { createProject, loadProject } from "@/lib/projects";
 import { supabase } from "@/lib/supabase";
 import { v4 as uuidv4 } from "uuid";
 import type { SubtitleSegment } from "@/lib/types";
+import { GlobalDropOverlay } from "@/components/media/GlobalDropOverlay";
 
 export function EditorProvider({ children }: { children: React.ReactNode }) {
   const searchParams = useSearchParams();
@@ -61,5 +62,10 @@ export function EditorProvider({ children }: { children: React.ReactNode }) {
     loadOrCreate();
   }, [searchParams, setProject, setMedia, setSegments]);
 
-  return <>{children}</>;
+  return (
+    <>
+      {children}
+      <GlobalDropOverlay />
+    </>
+  );
 }

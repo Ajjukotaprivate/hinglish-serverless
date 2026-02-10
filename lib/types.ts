@@ -28,6 +28,8 @@ export interface MediaItem {
   type: "video" | "audio" | "image";
   size?: number;
   duration?: number;
+  /** ISO date string for display e.g. "Feb 9" */
+  createdAt?: string;
 }
 
 export type AspectRatio = "9:16" | "16:9" | "1:1";

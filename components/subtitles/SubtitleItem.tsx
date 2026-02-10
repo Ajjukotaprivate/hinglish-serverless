@@ -14,11 +14,19 @@ function formatTime(seconds: number): string {
 interface SubtitleItemProps {
   segment: SubtitleSegment;
   index: number;
+  isLast: boolean;
 }
 
-export function SubtitleItem({ segment, index }: SubtitleItemProps) {
-  const { selectedSegmentId, setSelectedSegment, updateSegment, deleteSegment, setPlayhead } =
-    useEditorStore();
+export function SubtitleItem({ segment, index, isLast }: SubtitleItemProps) {
+  const { 
+    selectedSegmentId, 
+    setSelectedSegment, 
+    updateSegment, 
+    deleteSegment, 
+    mergeSegmentWithNext,
+    splitSegment,
+    setPlayhead,
+  } = useEditorStore();
   const [isEditing, setIsEditing] = useState(false);
   const [editText, setEditText] = useState(segment.text);
 
@@ -84,22 +92,42 @@ export function SubtitleItem({ segment, index }: SubtitleItemProps) {
           {segment.text}
         </p>
       )}
-      <div className="mt-2 flex gap-2">
+  <div className="mt-2 flex flex-wrap gap-2">
+      <button
+        type="button"
+        onClick={() => setPlayhead(segment.start)}
+        className="text-xs text-blue-600 hover:underline"
+      >
+        Go to
+      </button>
+      {!isEditing && (
         <button
           type="button"
-          onClick={() => setPlayhead(segment.start)}
-          className="text-xs text-primary hover:underline"
+          onClick={() => splitSegment(segment.id)}
+          className="text-xs text-green-600 hover:underline"
+          title="Split segment at midpoint"
         >
-          Go to
+          Split
         </button>
+      )}
+      {!isEditing && !isLast && (
         <button
           type="button"
-          onClick={() => deleteSegment(segment.id)}
-          className="text-xs text-red-600 hover:underline"
+          onClick={() => mergeSegmentWithNext(segment.id)}
+          className="text-xs text-purple-600 hover:underline"
+          title="Merge with next segment"
         >
-          Delete
+          Merge
         </button>
-      </div>
+      )}
+      <button
+        type="button"
+        onClick={() => deleteSegment(segment.id)}
+        className="text-xs text-red-600 hover:underline"
+      >
+        Delete
+      </button>
     </div>
-  );
+  </div>
+);
 }

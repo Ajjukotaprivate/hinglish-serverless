@@ -40,7 +40,7 @@ app.use(express.urlencoded({ extended: true }));
 // Configure multer
 const upload = multer({
   dest: 'uploads/',
-  limits: { fileSize: 50 * 1024 * 1024 }, // 50MB
+  limits: { fileSize: 350 * 1024 * 1024 }, // 350MB
 });
 
 // ============================================
@@ -207,7 +207,7 @@ async function transcribeWithRunPod(audioBase64, stepStartTime) {
   const RUN_URL = `https://api.runpod.ai/v2/${RUNPOD_ENDPOINT_ID}/run`;
   const STATUS_URL = `https://api.runpod.ai/v2/${RUNPOD_ENDPOINT_ID}/status/`;
 
-  // Submit job to RunPod
+  // Submit job to RunPod (no language field - worker uses its default, e.g. Hinglish)
   console.log(`   └─ POST to RunPod API (endpoint: ${RUNPOD_ENDPOINT_ID})`);
   const submitResponse = await fetch(RUN_URL, {
     method: 'POST',
@@ -517,21 +517,141 @@ app.post('/burn-subtitles', express.json(), async (req, res) => {
 // ============================================
 
 /**
- * Complete Video Processing Pipeline
- * POST /process-video
- * 
- * Does EVERYTHING in one API call:
- * - Extract audio from video
- * - Transcribe with RunPod
- * - Generate SRT/VTT
- * - Upload to Supabase
- * - Return results
+ * Log helper for pipeline steps
  */
 function logStep(step, message, elapsed) {
   const elapsedStr = elapsed ? ` [${(elapsed / 1000).toFixed(1)}s]` : '';
   console.log(`\n========== STEP ${step} ==========`);
   console.log(`[${new Date().toISOString()}] ${message}${elapsedStr}`);
 }
+
+// ============================================
+// UPLOAD VIDEO ONLY (no transcription)
+// ============================================
+
+app.post('/upload-video', upload.single('video'), async (req, res) => {
+  let videoPath;
+  try {
+    if (!req.file) {
+      return res.status(400).json({ error: 'No video file provided' });
+    }
+    const userId = req.body.userId || 'anonymous';
+    videoPath = req.file.path;
+    const videoStoragePath = `${userId}/videos/${Date.now()}-${req.file.originalname || 'video.mp4'}`;
+    const videoBuffer = fs.readFileSync(videoPath);
+    const { error: videoUploadError } = await supabase.storage
+      .from('videos')
+      .upload(videoStoragePath, videoBuffer, {
+        contentType: req.file.mimetype || 'video/mp4',
+        upsert: false,
+      });
+    if (videoUploadError) {
+      throw new Error(`Video upload failed: ${videoUploadError.message}`);
+    }
+    const SIGNED_URL_EXPIRY = 3600;
+    const { data: signed } = await supabase.storage.from('videos').createSignedUrl(videoStoragePath, SIGNED_URL_EXPIRY);
+    const videoUrl = signed?.signedUrl || null;
+    setTimeout(() => {
+      try { if (fs.existsSync(videoPath)) fs.unlinkSync(videoPath); } catch { }
+    }, 500);
+    res.json({ success: true, videoUrl, storagePath: videoStoragePath });
+  } catch (error) {
+    if (videoPath && fs.existsSync(videoPath)) {
+      try { fs.unlinkSync(videoPath); } catch { }
+    }
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// ============================================
+// TRANSCRIBE FROM VIDEO URL (no upload)
+// ============================================
+
+app.post('/transcribe', express.json(), async (req, res) => {
+  let videoPath, audioPath;
+  try {
+    const { videoUrl, userId } = req.body || {};
+    if (!videoUrl) {
+      return res.status(400).json({ error: 'videoUrl is required' });
+    }
+    const uid = userId || 'anonymous';
+    const stepStart = Date.now();
+
+    logStep(1, 'Downloading video...', null);
+    videoPath = await downloadFile(videoUrl);
+    logStep(1, 'Video downloaded', Date.now() - stepStart);
+
+    logStep(2, 'Extracting audio...', null);
+    const t2 = Date.now();
+    audioPath = await extractAudio(videoPath);
+    logStep(2, 'Audio extracted', Date.now() - t2);
+
+    logStep(3, 'Encoding audio for RunPod...', null);
+    const audioBuffer = fs.readFileSync(audioPath);
+    const audioBase64 = audioBuffer.toString('base64');
+
+    const audioStoragePath = `${uid}/audio/${Date.now()}-audio.wav`;
+    await supabase.storage.from('audio').upload(audioStoragePath, audioBuffer, {
+      contentType: 'audio/wav',
+      upsert: false,
+    });
+
+    logStep(4, 'Sending to RunPod...', null);
+    const t4 = Date.now();
+    const transcription = await transcribeWithRunPod(audioBase64, t4);
+    logStep(4, `Transcription done: ${transcription.segments.length} segments`, Date.now() - t4);
+
+    const srtContent = segmentsToSRT(transcription.segments);
+    const vttContent = segmentsToVTT(transcription.segments);
+    const timestamp = Date.now();
+    const srtPath = `${uid}/subtitles/${timestamp}.srt`;
+    const vttPath = `${uid}/subtitles/${timestamp}.vtt`;
+    await Promise.all([
+      supabase.storage.from('subtitles').upload(srtPath, srtContent, { contentType: 'text/plain', upsert: false }),
+      supabase.storage.from('subtitles').upload(vttPath, vttContent, { contentType: 'text/vtt', upsert: false }),
+    ]);
+
+    const SIGNED_URL_EXPIRY = 3600;
+    const [srtSigned, vttSigned, audioSigned] = await Promise.all([
+      supabase.storage.from('subtitles').createSignedUrl(srtPath, SIGNED_URL_EXPIRY),
+      supabase.storage.from('subtitles').createSignedUrl(vttPath, SIGNED_URL_EXPIRY),
+      supabase.storage.from('audio').createSignedUrl(audioStoragePath, SIGNED_URL_EXPIRY),
+    ]);
+
+    setTimeout(() => {
+      try {
+        if (videoPath && fs.existsSync(videoPath)) fs.unlinkSync(videoPath);
+        if (audioPath && fs.existsSync(audioPath)) fs.unlinkSync(audioPath);
+      } catch { }
+    }, 1000);
+
+    res.json({
+      success: true,
+      segments: transcription.segments,
+      subtitles: {
+        srt: srtSigned?.data?.signedUrl,
+        vtt: vttSigned?.data?.signedUrl,
+        text: transcription.text,
+        segments: transcription.segments,
+        words: transcription.words,
+      },
+      audioUrl: audioSigned?.data?.signedUrl,
+      storagePaths: { srt: srtPath, vtt: vttPath, audio: audioStoragePath },
+    });
+  } catch (error) {
+    console.error('Transcribe error:', error);
+    try {
+      if (videoPath && fs.existsSync(videoPath)) fs.unlinkSync(videoPath);
+      if (audioPath && fs.existsSync(audioPath)) fs.unlinkSync(audioPath);
+    } catch { }
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// ============================================
+// COMPLETE VIDEO PROCESSING PIPELINE
+// POST /process-video
+// ============================================
 
 app.post('/process-video', upload.single('video'), async (req, res) => {
   const startTime = Date.now();

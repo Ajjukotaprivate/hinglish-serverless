@@ -28,6 +28,7 @@ export function SubtitleList() {
           key={seg.id}
           segment={seg}
           index={index + 1}
+          isLast={index === segments.length - 1}
         />
       ))}
     </div>

@@ -2,22 +2,14 @@
 
 import { useRef, useState, useEffect } from "react";
 import { useEditorStore } from "@/lib/store";
-import { processVideo } from "@/lib/api";
 import { supabase } from "@/lib/supabase";
-import { v4 as uuidv4 } from "uuid";
-import type { SubtitleSegment, MediaItem } from "@/lib/types";
-
-type Step = "idle" | "uploading" | "extracting" | "transcribing" | "done";
+import { uploadVideoOnlyForPreview } from "@/lib/mediaUpload";
 
 export function MediaUpload() {
   const inputRef = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
-  const [step, setStep] = useState<Step>("idle");
   const [error, setError] = useState<string | null>(null);
   const [userId, setUserId] = useState<string>("anonymous");
-
-  const { setMedia, setSegments, setDirty, setMediaItems, setProcessing } =
-    useEditorStore();
 
   useEffect(() => {
     supabase.auth.getUser().then(({ data: { user } }) => {
@@ -25,150 +17,97 @@ export function MediaUpload() {
     });
   }, []);
 
-  const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    console.log("[MediaUpload] handleUpload triggered");
-    const file = e.target.files?.[0];
-    if (!file) {
-      console.log("[MediaUpload] No file selected");
-      return;
-    }
-
-    console.log("[MediaUpload] File selected:", file.name, file.size, "bytes", file.type);
-
-    if (file.size > 50 * 1024 * 1024) {
-      console.log("[MediaUpload] File too large:", file.size);
-      setError("File too large. Maximum size is 50MB.");
-      return;
-    }
-
-    console.log("[MediaUpload] Starting upload process for user:", userId);
+  const handleFile = async (file: File) => {
+    if (!file.type.startsWith("video/")) return;
     setError(null);
     setUploading(true);
-    setStep("uploading");
-    setProcessing(true, "Uploading...");
-
     try {
-      console.log("[MediaUpload] Calling processVideo...");
-      setStep("extracting");
-      setProcessing(true, "Extracting audio...");
-      const result = await processVideo(file, userId);
-      console.log("[MediaUpload] processVideo result:", result);
-
-      if (!result.success || !result.subtitles) {
-        throw new Error(result.error || "Processing failed");
-      }
-
-      setStep("transcribing");
-      setProcessing(true, "Transcribing (1–2 min)...");
-      const segmentsWithIds: SubtitleSegment[] = (
-        result.subtitles.segments || []
-      ).map((seg: { start: number; end: number; text: string }) => ({
-        id: uuidv4(),
-        start: seg.start,
-        end: seg.end,
-        text: seg.text,
-      }));
-
-      const videoUrl = result.videoUrl || result.audioUrl;
-      setMedia({
-        videoUrl,
-        audioUrl: result.audioUrl,
-        srtUrl: result.subtitles.srt,
-        vttUrl: result.subtitles.vtt,
-        duration: 0,
-      });
-      setSegments(segmentsWithIds);
-
-      const videoItem: MediaItem = {
-        id: uuidv4(),
-        name: file.name,
-        url: videoUrl || "",
-        type: "video",
-        size: file.size,
-      };
-      setMediaItems([videoItem]);
-
-      // Create project if not exists, save media URLs
-      const { createProject, saveProject } = await import("@/lib/projects");
-      const store = useEditorStore.getState();
-      let projectId = store.projectId;
-
-      if (!projectId) {
-        const projectName = file.name.replace(/\.\w+$/, "") || "Untitled";
-        const project = await createProject(projectName, userId);
-        projectId = project.id;
-        store.setProject(project.id, project.name);
-
-        // Update URL without page reload
-        window.history.replaceState({}, "", `/?project=${project.id}`);
-      }
-
-      // Save media URLs and segments to project
-      await saveProject(projectId, {
-        video_url: videoUrl,
-        audio_url: result.audioUrl,
-        srt_url: result.subtitles.srt,
-        vtt_url: result.subtitles.vtt,
-        segments_json: segmentsWithIds,
-      });
-
-      setDirty(false); // Just saved, not dirty
-
-      const video = document.createElement("video");
-      video.preload = "metadata";
-      video.src = videoUrl || "";
-      video.onloadedmetadata = () => {
-        useEditorStore.getState().setMedia({ duration: video.duration });
-      };
-      setStep("done");
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Upload failed");
+      const { error: err } = await uploadVideoOnlyForPreview(file, userId);
+      if (err) setError(err);
     } finally {
       setUploading(false);
-      setStep("idle");
-      setProcessing(false);
       if (inputRef.current) inputRef.current.value = "";
     }
   };
 
-  const stepLabel =
-    step === "uploading"
-      ? "Uploading..."
-      : step === "extracting"
-        ? "Extracting audio..."
-        : step === "transcribing"
-          ? "Transcribing (1–2 min)..."
-          : step === "done"
-            ? "Done!"
-            : "Upload Media Max 50MB";
+  const handleInputChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    await handleFile(file);
+  };
+
+  const handleRefresh = () => {
+    setError(null);
+    inputRef.current?.click();
+  };
 
   return (
     <div className="space-y-2">
       <input
         ref={inputRef}
         type="file"
-        accept="video/*"
-        onChange={handleUpload}
+        accept="video/*, audio/*, image/*"
+        onChange={handleInputChange}
         className="hidden"
       />
-      <button
-        type="button"
-        onClick={() => inputRef.current?.click()}
-        disabled={uploading}
-        className="flex w-full items-center justify-center gap-2 rounded-lg bg-primary px-4 py-3 text-sm font-medium text-white hover:bg-primary-hover disabled:opacity-50"
-      >
-        {uploading ? (
-          <>
-            <span className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" />
-            {stepLabel}
-          </>
-        ) : (
-          <>{stepLabel}</>
-        )}
-      </button>
-      {error && (
-        <p className="text-sm text-red-600">{error}</p>
-      )}
+      <div className="flex items-center gap-2">
+        <button
+          type="button"
+          onClick={() => inputRef.current?.click()}
+          disabled={uploading}
+          className="flex flex-1 items-center justify-center gap-2 rounded-lg bg-blue-600 px-4 py-3 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+        >
+          {uploading ? (
+            <>
+              <span className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" />
+              Uploading…
+            </>
+          ) : (
+            <>
+              <svg
+                className="h-5 w-5"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"
+                />
+              </svg>
+              Upload Media
+            </>
+          )}
+        </button>
+        <button
+          type="button"
+          onClick={handleRefresh}
+          disabled={uploading}
+          className="flex h-[46px] w-10 flex-shrink-0 items-center justify-center rounded-lg border border-gray-300 bg-gray-50 text-gray-600 hover:bg-gray-100 disabled:opacity-50"
+          title="Refresh / Upload"
+        >
+          <svg
+            className="h-5 w-5"
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth={2}
+              d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+            />
+          </svg>
+        </button>
+      </div>
+      <p className="text-center text-xs text-gray-500">Max 350MB</p>
+      <p className="text-center text-xs text-gray-400">
+        Or drag and drop anywhere on the screen
+      </p>
+      {error && <p className="text-sm text-red-600">{error}</p>}
     </div>
   );
 }

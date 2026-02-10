@@ -73,9 +73,19 @@ export function TopBar() {
         <h1 className="text-xl font-bold text-red-600">Hinglish Editor</h1>
         <div className="flex items-center gap-2">
           <span className="text-sm font-medium text-gray-700">{projectName}</span>
-          <span className="text-xs text-gray-500">
-            {isSaving ? "Saving..." : isDirty ? "Unsaved" : "Saved"}
-          </span>
+          {projectId && (
+            <button
+              type="button"
+              onClick={handleSave}
+              disabled={!isDirty || isSaving}
+              className={`rounded px-3 py-1 text-xs font-medium transition-colors ${isDirty && !isSaving
+                  ? "bg-blue-500 text-white hover:bg-blue-600"
+                  : "bg-gray-200 text-gray-500 cursor-not-allowed"
+                }`}
+            >
+              {isSaving ? "Saving..." : isDirty ? "Save" : "Saved ✓"}
+            </button>
+          )}
         </div>
       </div>
 
