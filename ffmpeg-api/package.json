@@ -2,10 +2,10 @@
   "name": "ffmpeg-audio-extractor",
   "version": "1.0.0",
   "description": "Microservice to extract audio from videos using FFmpeg",
-  "main": "index.js",
+  "main": "index-complete.js",
   "scripts": {
-    "start": "node index.js",
-    "dev": "nodemon index.js"
+    "start": "node index-complete.js",
+    "dev": "nodemon index-complete.js"
   },
   "keywords": ["ffmpeg", "audio", "extraction", "video"],
   "author": "",
