@@ -192,18 +192,6 @@ node index-complete.js
 
 ---
 
-## 📍 Roadmap
-
-- [x] Upload → transcribe → SRT/VTT pipeline  
-- [x] Supabase Storage + Auth  
-- [x] Next.js editor shell + timeline components  
-- [x] Subtitle style panel  
-- [x] FFmpeg subtitle burn endpoint  
-- [ ] Credits system + Stripe integration  
-- [ ] Silence detection & filler-word removal  
-- [ ] Auto-zoom on speaker face  
-- [ ] Admin dashboard with usage analytics  
-- [ ] CDN + GPU warm-up for sub-10s cold starts  
 
 ---
 
