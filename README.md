@@ -1,177 +1,228 @@
-# 🎬 Hinglish Subtitle Generator
+# 🎬 Hinglish Subtitle Editor
 
-A simple MVP for generating Hinglish subtitles using Railway API + RunPod ASR.
-
-## What This Does
-
-Upload a video → Extract audio → Transcribe to Hinglish → Preview with synced subtitles
+> **AI-powered subtitle generation & viral caption editor for Indian video creators.**  
+> Upload video → GPU transcription → timeline editor → TikTok-style styling → export MP4 with burned captions.
 
 ---
 
-## 📁 Project Structure
+## 🧭 What Is This?
+
+**Hinglish Subtitle Editor** is a full-stack SaaS product built for the Indian creator economy — similar to [SubtitlesFast](https://subtitlesfast.com) but purpose-built for **Hinglish content** (Hindi spoken, romanised English captions).
+
+Indian creators on YouTube, Instagram Reels and YouTube Shorts often produce content in Hinglish but lack tools that understand the language well enough to auto-caption it accurately. This project solves that gap with a custom AI pipeline layered over a full editing experience.
+
+---
+
+## 👥 Who Is It For?
+
+| Audience | Use Case |
+|----------|----------|
+| **YouTube / Reels creators** | Auto-generate accurate Hinglish captions without manually typing them |
+| **Podcast editors** | One-click transcription + subtitle file export (SRT/VTT) |
+| **Short-form video teams** | Apply viral TikTok-style caption styling and export burned MP4 |
+| **Indie SaaS builders** | Reference architecture for GPU-backed video processing pipelines |
+
+---
+
+## ✨ Key Features
+
+- 🎙️ **Hinglish ASR** — Custom Whisper model fine-tuned on Hindi → Hinglish transliteration, with word-level timestamps via WhisperX
+- 🖥️ **Timeline Editor** — SubtitlesFast-style multi-track editor (video / subtitle / audio / overlay tracks) built in Next.js
+- 🎨 **Viral Caption Styling** — Font, color, stroke, background, word-highlighting, and animation presets
+- ✂️ **Subtitle List Editor** — Edit, merge, split, add, or delete individual subtitle segments
+- 🔥 **Server-side Subtitle Burning** — FFmpeg + ASS rendering on Railway for pixel-perfect caption burn-in
+- 📦 **Export** — SRT, VTT, or MP4 with burned subtitles
+- 💾 **Project Save / Load** — Supabase-backed project persistence with auto-save
+- 🔐 **Auth** — Email OTP + Google OAuth via Supabase Auth
+- 💳 **Credits System** — Usage-based paywall, Stripe-ready
+
+---
+
+## 🏗️ Architecture
+
+```
+┌─────────────┐     ┌──────────────────────┐     ┌──────────────┐     ┌───────────────┐
+│  Next.js    │────▶│  Railway API          │────▶│  RunPod GPU  │────▶│   Supabase    │
+│  Frontend   │     │  Node.js + FFmpeg     │     │  Whisper ASR │     │   Storage/DB  │
+└─────────────┘     └──────────────────────┘     └──────────────┘     └───────────────┘
+      │                       │                          │                      │
+  Timeline editor        POST /process-video        Hinglish segments      Audio, SRT, VTT,
+  Subtitle styling        POST /burn-subtitles       + word timestamps       Projects, Users
+  Export modal           FFmpeg audio extract
+```
+
+### End-to-End Pipeline
+
+| Step | Where | What Happens |
+|------|-------|--------------|
+| 1 | **Browser** | User uploads MP4 / MOV |
+| 2 | **Railway** | Multer receives file; FFmpeg extracts 16kHz mono WAV |
+| 3 | **Railway** | Audio encoded to base64, POSTed to RunPod `/run` |
+| 4 | **RunPod** | Whisper-Hindi2Hinglish-Apex transcribes audio |
+| 5 | **RunPod** | WhisperX aligns word-level timestamps |
+| 6 | **Railway** | SRT / VTT generated from segment data |
+| 7 | **Supabase** | Audio, SRT, VTT uploaded; public URLs returned |
+| 8 | **Browser** | Next.js editor loads video + subtitles into timeline |
+| 9 | **Railway** | On export: FFmpeg burns subtitles into MP4 (ASS renderer) |
+| 10 | **Supabase** | Final MP4 stored; user downloads |
+
+---
+
+## 🛠️ Tech Stack
+
+### Frontend
+| Layer | Technology |
+|-------|-----------|
+| Framework | **Next.js 14** (App Router) |
+| Language | **TypeScript** |
+| State Management | **Zustand** |
+| Styling | **Tailwind CSS** |
+| Auth Client | **Supabase SSR** |
+
+### Backend
+| Layer | Technology |
+|-------|-----------|
+| API Server | **Node.js + Express** on Railway |
+| Video/Audio | **FFmpeg** — extraction, subtitle burning (ASS) |
+| File Handling | **Multer** (multipart uploads) |
+| Storage Client | **Supabase JS** |
+
+### AI / ML
+| Component | Technology |
+|-----------|-----------|
+| Model | **Whisper-Hindi2Hinglish-Apex** (custom fine-tuned) |
+| Alignment | **WhisperX** for word-level timestamps |
+| Runtime | **CUDA** on RunPod A100 / RTX 4090 |
+| Serving | **RunPod Serverless** (GPU-on-demand) |
+| Container | **Custom Docker** image |
+
+### Infrastructure
+| Service | Role |
+|---------|------|
+| **Railway** | Node.js API hosting + FFmpeg |
+| **RunPod** | Serverless GPU inference |
+| **Supabase** | PostgreSQL, Blob Storage, Auth |
+
+---
+
+## 📂 Project Structure
 
 ```
 hinglish-serverless/
-├── ffmpeg-api/              # Railway API - handles video processing
-│   ├── index-complete.js    # Main API (video → audio → RunPod → SRT)
-│   ├── .env                 # Configuration (Supabase + RunPod keys)
-│   └── package.json         # Dependencies
 │
-├── runpod/                  # RunPod deployment (deploy separately to RunPod)
-│   ├── Dockerfile           # RunPod Docker image
-│   ├── handler.py           # RunPod handler (Whisper ASR)
-│   └── requirements.txt     # Python dependencies
+├── app/                        # Next.js App Router (pages, API routes)
+├── components/
+│   ├── timeline/               # Multi-track timeline (VideoTrack, AudioTrack, OverlayTrack, TimeRuler)
+│   ├── subtitles/              # Subtitle list editor
+│   ├── style/                  # Caption style panel (fonts, colors, animations)
+│   ├── export/                 # Export modal (SRT / MP4)
+│   ├── media/                  # Media upload panel
+│   ├── editor/                 # Main editor layout
+│   └── layout/                 # Shell, sidebar, nav
+├── lib/
+│   └── store.ts                # Zustand global state
 │
-├── test-mvp-upload.html     # MVP upload page
-├── test-mvp-preview.html    # MVP preview with synced subtitles
-├── test_runpod.py           # Test RunPod endpoint
+├── ffmpeg-api/                 # Railway backend (Node.js)
+│   └── index-complete.js       # POST /process-video + POST /burn-subtitles
 │
-├── ARCHITECTURE.md           # Architecture & pipeline docs
-├── BUILD-STATUS.md           # What's built vs roadmap
-└── .env.local               # Main environment variables
+├── runpod/                     # GPU worker (Python)
+│   ├── handler.py              # WhisperX Hinglish handler
+│   ├── Dockerfile              # RunPod serverless image
+│   └── requirements.txt
+│
+├── supabase/                   # DB migrations + RLS policies
+├── ARCHITECTURE.md             # Detailed pipeline docs
+└── BUILD-STATUS.md             # Feature tracker & roadmap
 ```
 
 ---
 
-## 🚀 Quick Start
+## 🚀 Getting Started
 
-### Next.js App (Recommended)
-
-1. **Install dependencies**
-   ```bash
-   npm install
-   ```
-
-2. **Configure environment**
-   - Copy `.env.example` to `.env.local`
-   - Add `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`
-   - Add `NEXT_PUBLIC_RAILWAY_API_URL` (your Railway API URL)
-
-3. **Run Supabase migrations**
-   - In Supabase Dashboard: SQL Editor → run `supabase/migrations/*.sql`
-   - Create `videos` and `exports` storage buckets
-
-4. **Start the app**
-   ```bash
-   npm run dev
-   ```
-   Open http://localhost:3000
-
-### Legacy HTML MVP
-
-1. **Start the Railway API**
-   ```bash
-   cd ffmpeg-api
-   node index-complete.js
-   ```
-
-2. **Open `test-mvp-upload.html`** in your browser
-
-3. **Upload a video** (max 50MB), wait 1-2 min, then **Preview** with subtitles
-
----
-
-## 📋 What Each Part Does
-
-### Railway API (`ffmpeg-api/`)
-- Accepts video uploads
-- Extracts audio with FFmpeg (16kHz mono)
-- Sends to RunPod for transcription
-- Generates SRT/VTT files
-- Stores everything in Supabase
-- Returns URLs to frontend
-
-### RunPod (Docker)
-- `Dockerfile` - RunPod serverless image
-- `handler.py` - Whisper-Hindi2Hinglish-Apex model
-- `test_runpod.py` - Test the endpoint
-
-### Frontend (HTML)
-- `test-mvp-upload.html` - Upload interface
-- `test-mvp-preview.html` - Video player with subtitle overlay
-
----
-
-## ⚙️ Configuration
-
-### Railway API (`.env`)
-```env
-SUPABASE_URL=your_url
-SUPABASE_SERVICE_ROLE_KEY=your_key
-RUNPOD_API_KEY=your_key
-RUNPOD_ENDPOINT_ID=your_endpoint
-```
-
-### Main Config (`.env.local`)
-Contains all Supabase and RunPod credentials
-
----
-
-## 🎯 Architecture
-
-```
-Video Upload (50MB max)
-    ↓
-Railway API (Node.js)
-    ↓
-FFmpeg (Extract Audio)
-    ↓
-RunPod ASR (Hinglish Transcription)
-    ↓
-SRT/VTT Generation
-    ↓
-Supabase Storage
-    ↓
-Preview with Synced Subtitles
-```
-
----
-
-## 📖 Documentation
-
-- **ARCHITECTURE.md** - Pipeline architecture (Railway → RunPod → Supabase)
-- **BUILD-STATUS.md** - What's built vs roadmap for next phase
-- **ffmpeg-api/README.md** - API documentation
-
----
-
-## ✅ What Works
-
-- ✅ Video upload (50MB limit)
-- ✅ Audio extraction with FFmpeg
-- ✅ Hinglish transcription via RunPod
-- ✅ SRT/VTT generation
-- ✅ Supabase Storage integration
-- ✅ Preview with synced subtitles
-- ✅ Word-level timestamps
-- ✅ **Next.js app** – Timeline editor, subtitle styling, export
-- ✅ **Subtitle burn** – FFmpeg `POST /burn-subtitles`
-- ✅ **Auth** – Email OTP, Google OAuth
-- ✅ **Projects** – Save/load in Supabase
-- ✅ **Credits** – User profiles, placeholder for Stripe
-
----
-
-## 💰 Current Stack
-
-- **Backend:** Railway API (Node.js + Express)
-- **Storage:** Supabase Storage
-- **Transcription:** RunPod Serverless GPU (Whisper model)
-- **Frontend:** Simple HTML (MVP)
-
-**Cost:** ~$10-15/month (Railway + RunPod usage)
-
----
-
-## 🔧 Requirements
-
+### Prerequisites
 - Node.js 18+
-- FFmpeg (for local testing)
-- Supabase account
+- Supabase project (free tier works)
 - RunPod account with deployed endpoint
+- Railway account (or local FFmpeg for dev)
+
+### 1. Install dependencies
+```bash
+npm install
+```
+
+### 2. Configure environment
+```bash
+cp .env.example .env.local
+```
+Fill in:
+```env
+NEXT_PUBLIC_SUPABASE_URL=
+NEXT_PUBLIC_SUPABASE_ANON_KEY=
+NEXT_PUBLIC_RAILWAY_API_URL=
+SUPABASE_SERVICE_ROLE_KEY=
+RUNPOD_API_KEY=
+RUNPOD_ENDPOINT_ID=
+```
+
+### 3. Run Supabase migrations
+In your Supabase Dashboard → SQL Editor → run files in `supabase/migrations/`
+
+### 4. Start the dev server
+```bash
+npm run dev
+# open http://localhost:3000
+```
+
+### 5. Start the Railway API locally (optional)
+```bash
+cd ffmpeg-api
+node index-complete.js
+```
 
 ---
 
-## 📝 License
+## 🧠 Engineering Highlights
 
-MIT
+- **Custom Hinglish ASR pipeline** — built and deployed a custom RunPod Docker image using Whisper + WhisperX with a Hindi→Hinglish transliteration model.  
+- **Word-level timestamp alignment** — WhisperX aligns every word to a precise start/end time, enabling word-highlight animation in captions.
+- **Server-side subtitle burning** — captions are burned server-side on Railway via FFmpeg's ASS subtitle renderer to ensure consistent visual output across all devices (no canvas hacks).
+- **Serverless GPU cost model** — RunPod only bills per GPU-second; designed warm-up strategy for cold start mitigation.
+- **A/V sync guarantee** — timestamps flow from RunPod → SRT → frontend timeline → burned ASS captions without re-encoding the video stream, preserving original quality.
+- **Multi-track Zustand state** — editor state (video, subtitles, playhead, style settings, project) is managed in a single Zustand store with `immer` patterns for immutable segment updates.
+
+---
+
+## 📍 Roadmap
+
+- [x] Upload → transcribe → SRT/VTT pipeline  
+- [x] Supabase Storage + Auth  
+- [x] Next.js editor shell + timeline components  
+- [x] Subtitle style panel  
+- [x] FFmpeg subtitle burn endpoint  
+- [ ] Credits system + Stripe integration  
+- [ ] Silence detection & filler-word removal  
+- [ ] Auto-zoom on speaker face  
+- [ ] Admin dashboard with usage analytics  
+- [ ] CDN + GPU warm-up for sub-10s cold starts  
+
+---
+
+## 💰 Infrastructure Cost
+
+| Service | Cost |
+|---------|------|
+| Railway (API) | ~$5/month |
+| RunPod (GPU) | Pay-per-second (billed on use) |
+| Supabase | Free tier → ~$25/month at scale |
+
+**Target:** ₹10–₹49 per video export (Indian creator pricing).
+
+---
+
+## 📄 License
+
+MIT — free to fork and adapt.
+
+---
+
+*Built by [@Ajjukota](https://github.com/Ajjukotaprivate) — Full Stack AI Developer.*
